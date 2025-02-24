@@ -45,10 +45,10 @@ static const uint32_t crc_table[] = {
 
 static const uint8_t png_signature[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
 
-static const uint8_t adam7x[] = 	{ 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
-static const uint8_t adam7xstep[] = 	{ 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
-static const uint8_t adam7y[] = 	{ 0, 0, 0, 4, 0, 2, 0, 1 };     // Y start
-static const uint8_t adam7ystep[] = 	{ 1, 8, 8, 8, 4, 4, 2, 2 }; // Y step
+static const uint8_t adam7x[] = { 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
+static const uint8_t adam7xstep[] = { 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
+static const uint8_t adam7y[] = { 0, 0, 0, 4, 0, 2, 0, 1 };     // Y start
+static const uint8_t adam7ystep[] = { 1, 8, 8, 8, 4, 4, 2, 2 }; // Y step
 
 enum
 {
@@ -191,23 +191,35 @@ report (lwpng_t * p)
         b,
         a = 0xFFFF;
       if (p->IHDR.depth == 16)
-      { // 16 bit
-         r = *x++;
-         r = (r << 8) + *x++;
-         g = *x++;
-         g = (g << 8) + *x++;
-         b = *x++;
-         r = (b << 8) + *x++;
+      {                         // 16 bit
+         if (p->IHDR.colour & 2)
+         {
+            r = *x++;
+            r = (r << 8) + *x++;
+            g = *x++;
+            g = (g << 8) + *x++;
+            b = *x++;
+            r = (b << 8) + *x++;
+         } else
+         {
+            r = *x++;
+            r = (r << 8) + *x++;
+            g = b = r;
+         }
          if (p->IHDR.colour & 4)
          {
             a = *x++;
             a = (a << 8) + *x++;
          }
       } else
-      { // 8 bit
-         r = 257 * *x++;
-         g = 257 * *x++;
-         b = 257 * *x++;
+      {                         // 8 bit
+         if (p->IHDR.colour & 2)
+         {
+            r = 257 * *x++;
+            g = 257 * *x++;
+            b = 257 * *x++;
+         } else
+            r = g = b = 257 * *x++;
          if (p->IHDR.colour & 4)
             a = 257 * *x++;
       }
@@ -229,7 +241,7 @@ scan_byte (lwpng_t * p, uint8_t b)
       p->filter = b;
       p->ppos = 0;
 #ifdef	CONFIG_LWPNG_DEBUG
-      printf ("%d/%d:", b,p->adam7);
+      printf ("%d/%d:", b, p->adam7);
 #endif
       return NULL;
    }
@@ -286,7 +298,8 @@ scan_byte (lwpng_t * p, uint8_t b)
             p->adam7++;
             p->x = adam7x[p->adam7];
             p->y = adam7y[p->adam7];
-         }
+         } else
+            p->x = 0;
          p->filter = 7;         // Flag start of line
 #ifdef	CONFIG_LWPNG_DEBUG
          printf ("\n");
@@ -427,8 +440,8 @@ png_byte (lwpng_t * p, uint8_t b)
                      p->bpp = (p->IHDR.depth / 8) * 3;
                      bytes = (uint64_t) p->IHDR.width * p->bpp;
                   }
-                     if (p->IHDR.colour & 4)
-                        p->bpp += (p->IHDR.depth / 8); // Alpha
+                  if (p->IHDR.colour & 4)
+                     p->bpp += (p->IHDR.depth / 8);     // Alpha
                   if (!(p->scan = p->mz.zalloc (p->mz.opaque, 1, bytes)))
                      return "Out of memory";
                   memset (p->scan, 0, bytes);
@@ -436,7 +449,7 @@ png_byte (lwpng_t * p, uint8_t b)
                   if (p->IHDR.interlace)
                      p->adam7 = 1;
 #ifdef	CONFIG_LWPNG_DEBUG
-		  warnx("bpp=%d bytes=%lu",p->bpp,bytes);
+                  warnx ("bpp=%d bytes=%lu", p->bpp, bytes);
 #endif
                }
                p->state = STATE_IDAT;
