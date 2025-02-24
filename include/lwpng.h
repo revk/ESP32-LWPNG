@@ -9,10 +9,9 @@
 #include <zlib.h>
 #define	mz_alloc_int	uInt
 #define	mz_stream	z_stream
-#define	mz_inflateInit	z_inflateInit
-#define	mz_inflateInit2	z_inflateInit2
-#define	mz_inflate	z_inflate
-#define	mz_inflateEnd	z_inflateEnd
+#define	mz_inflateInit	inflateInit
+#define	mz_inflate	inflate
+#define	mz_inflateEnd	inflateEnd
 #define	mz_alloc_func	alloc_func
 #define	mz_free_func	free_func
 #endif

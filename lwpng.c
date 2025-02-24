@@ -89,11 +89,20 @@ struct lwpng_s
    } IHDR;
    uint8_t *PLTE;               // Malloc'd PLTE
    uint8_t *tRNS;               // Malloc'd tRNS
+   uint8_t *scan;               // Malloc'd scan line (max bytes)
+   uint8_t pixel[8];            // Last pixel for filter (worst case is 16 bit R G B A)
+   uint32_t y;                  // Y position from top
+   uint32_t x;                  // X position from left
+   uint32_t ppos;               // filter pixel pos
    uint8_t state:4;             // Current state
+   uint8_t bpp:4;               // BPP for filter
+   uint8_t bpos:4;              // Byte in bpp for filter
+   uint8_t adam7:3;             // Which interlace
+   uint8_t filter:3;            // This line filter
 #ifdef	CONFIG_LWPNG_CHECKS
    uint8_t start:1;             // We have started (had IHDR)
-   uint8_t data:1;              // We have had IDAT
 #endif
+   uint8_t data:1;              // We have had IDAT
    uint8_t end:1;               // We have cleanly got to the end - retain even if CHECKS not set as file could be cut short
 };
 
@@ -109,19 +118,111 @@ lwpng_free (void *opaque, void *address)
    free (address);
 }
 
-#if 0
+static inline uint8_t
+paeth (uint8_t a, uint8_t b, uint8_t c)
+{
+   uint16_t p = a + b + c;
+   uint16_t pa = (p > a ? p - a : a - p);
+   uint16_t pb = (p > b ? p - b : b - p);
+   uint16_t pc = (p > c ? p - c : c - p);
+   if (pa <= pb && pa <= pc)
+      return a;
+   if (pb <= pc)
+      return b;
+   return c;
+}
+
+static void report(lwpng_t *p)
+{
+	// TODO adam7
+	// TODO multiple bpp
+}
+
 static const char *
 scan_byte (lwpng_t * p, uint8_t b)
 {                               // Process inflated IDAT byte
-   // TODO
+   if (p->filter == 7)
+   {                            // Start of scan line
+      if (b > 4)
+         return "Bad filter";
+      p->filter = b;
+      p->x = 0;
+      p->ppos = 0;
+#ifdef	CONFIG_LWPNG_DEBUG
+      printf ("%d:", b);
+#endif
+      return NULL;
+   }
+   uint8_t l = (p->ppos ? p->pixel[p->bpos] : 0);
+   uint8_t ul = (p->ppos > 0 ? p->scan[(uint64_t) (p->ppos - 1) * p->bpp + p->bpos] : 0);
+   uint8_t u = p->scan[(uint64_t) p->ppos * p->bpp + p->bpos];
+   switch (p->filter)
+   {
+   case 0:                     // None
+      break;
+   case 1:                     // Sub
+      b += l;
+      break;
+   case 2:                     // Up
+      b += u;
+      break;
+   case 3:                     // Average
+      b += ((uint16_t) u + l) / 2;
+      break;
+   case 4:                     // Paeth
+      b += paeth (l, u, ul);
+      break;
+   }
+#ifdef	CONFIG_LWPNG_DEBUG
+   printf ("%02X", b);
+#endif
+   if (p->ppos > 0)
+      p->scan[(uint64_t) (p->ppos - 1) * p->bpp + p->bpos] = p->pixel[p->bpos];
+   p->pixel[p->bpos] = b;
+   p->bpos++;
+   if (p->bpos == p->bpp)
+   {                            // End of pixel
+      report (p);
+      printf (" ");
+      p->bpos = 0;
+      // TODO adam7
+      if (p->bpp == 1 && ((p->IHDR.colour ^ 2) & 3))
+         p->x += 8 / p->IHDR.depth;
+      else
+         p->x++;
+      p->ppos++;
+      if (p->x >= p->IHDR.width)
+      {                         // End of line
+         report (p);
+         memcpy (p->scan + (uint64_t) (p->ppos - 1) * p->bpp, p->pixel, p->bpp); // Last pixel stored
+         p->y++;
+         p->filter = 7;         // Flag start of line
+#ifdef	CONFIG_LWPNG_DEBUG
+         printf ("\n");
+#endif
+      }
+   }
    return NULL;
 }
-#endif
 
 static const char *
 idat_byte (lwpng_t * p, uint8_t b)
 {                               // process byte from IDAT, compressed
-   // TODO inflate
+   p->mz.next_in = &b;
+   p->mz.avail_in = 1;
+   p->mz.total_in = 0;
+   while (!p->mz.total_in)
+   {
+      uint8_t out[32] = { 0 };
+      p->mz.next_out = out;
+      p->mz.avail_out = sizeof (out);
+      p->mz.total_out = 0;
+      int e = mz_inflate (&p->mz, 0);
+      if (e != Z_OK && e != Z_STREAM_END)
+         return "Inflate not OK";
+      for (int i = 0; i < p->mz.total_out; i++)
+         scan_byte (p, out[i]);
+   }
    return NULL;
 }
 
@@ -185,9 +286,7 @@ png_byte (lwpng_t * p, uint8_t b)
       {
          p->state = STATE_CHUNK;        // ready for first chunk
          p->remaining = sizeof (p->chunk);
-      }
-      else
-      if (p->state == STATE_CRC)
+      } else if (p->state == STATE_CRC)
       {                         // CRC done
 #ifdef	CONFIG_LWPNG_CHECKS
          if (p->crc != (p->crccheck ^ 0xFFFFFFFF))
@@ -200,8 +299,7 @@ png_byte (lwpng_t * p, uint8_t b)
 #endif
          p->state = STATE_CHUNK;        // ready for next chunk
          p->remaining = sizeof (p->chunk);
-      }
-      else if (p->state == STATE_CHUNK)
+      } else if (p->state == STATE_CHUNK)
       {                         // Start of chunk - work out type
          p->remaining = p->chunk.length = ntohl (p->chunk.length);
 #ifdef	CONFIG_LWPNG_DEBUG
@@ -225,9 +323,26 @@ png_byte (lwpng_t * p, uint8_t b)
 #endif
             if (!memcmp (p->chunk.type, "IDAT", 4))
             {
-#ifdef	CONFIG_LWPNG_CHECKS
-               p->data = 1;
-#endif
+               if (!p->data)
+               {                // Start
+                  p->data = 1;
+                  uint64_t bytes = 0;
+                  if (((p->IHDR.colour ^ 2) & 3))
+                  {             // Indexed or grey, packed
+                     p->bpp = ((p->IHDR.depth / 8) ? : 1);
+                     bytes = ((uint64_t) p->IHDR.width * 8 + 7) / p->IHDR.depth;
+                  } else
+                  {             // Colour per pixel (8 or 16 bits) possibly with alpha
+                     p->bpp = (p->IHDR.depth / 8) * 3;
+                     if (p->IHDR.colour & 4)
+                        p->bpp += 2;
+                     bytes = (uint64_t) p->IHDR.width * p->bpp;
+                  }
+                  if (!(p->scan = p->mz.zalloc (p->mz.opaque, 1, bytes)))
+                     return "Out of memory";
+                  memset (p->scan, 0, bytes);
+                  p->filter = 7;        // Start of scan line
+               }
                p->state = STATE_IDAT;
             } else if (!memcmp (p->chunk.type, "PLTE", 4))
             {
@@ -291,7 +406,13 @@ png_byte (lwpng_t * p, uint8_t b)
                return "Invalid interlace";
 #endif
             if (p->cb_start)
-               p->cb_start (p->opaque, p->IHDR.width, p->IHDR.height, p->IHDR.colour & 4);
+            {
+#ifdef	CONFIG_LWPNG_DEBUG
+               warnx ("W=%d H=%d colour=%02X depth=%02X compress=%02X filter=%02X interlace=%02X", p->IHDR.width, p->IHDR.height,
+                      p->IHDR.colour, p->IHDR.depth, p->IHDR.compress, p->IHDR.filter, p->IHDR.interlace);
+#endif
+               p->error = p->cb_start (p->opaque, p->IHDR.width, p->IHDR.height, p->IHDR.colour & 4);
+            }
          }
       }
       if (!p->remaining)
@@ -326,6 +447,8 @@ lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, mz
    p->mz.zfree = zfree;
    p->mz.opaque = allocopaque;
    p->remaining = sizeof (png_signature);
+   if (mz_inflateInit (&p->mz) != Z_OK)
+      p->error = "Inflate init error";
    return p;
 }
 
@@ -355,6 +478,9 @@ lwpng_end (lwpng_t ** pp)
       p->mz.zfree (p->opaque, p->PLTE);
    if (p->tRNS)
       p->mz.zfree (p->opaque, p->tRNS);
+   if (p->scan)
+      p->mz.zfree (p->opaque, p->scan);
+   inflateEnd (&p->mz);
    p->mz.zfree (p->mz.opaque, p);
    return e;
 }
