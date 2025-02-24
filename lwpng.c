@@ -25,31 +25,34 @@ struct lwpng_s
    const char *error;           // Set if error state
    mz_stream mz;                // Inflate
    uint32_t remaining;          // Bytes remaining in current state
-   uint8_t PLTE_last;           // Last PLTE entry, so 255 means all 256 PLTE entries, only applies if PLTE set
-   uint8_t tRNS_last;           // Last tRNS entry, so 255 means all 256 tRNS entries, only applies if tRNS set and indexed, else tRNS has standard (grey/colour values)
+   uint16_t PLTE_len;           // Length of PLTE (bytes)
+   uint16_t tRNS_len;           // Length of tRNS (bytes)
    uint8_t state:4;             // Current state
 #ifdef	CONFIG_LWPNG_CHECKS
    uint8_t start:1;             // We have started (had IHDR)
-   uint8_t data:1;              // We have had IDAT
 #endif
+   uint8_t data:1;              // We have had IDAT
    uint8_t end:1;               // We have cleanly got to the end - retain even if CHECKS not set as file could be cut short
+#ifdef	CONFIG_LWPNG_CHECKS
+   uint32_t crc;
+#endif
    struct
    {
       uint32_t length;
       uint8_t type[4];
    } chunk;
-   uint32_t crc;
    struct
    {
       uint32_t width;
       uint32_t height;
+      uint8_t depth;
       uint8_t colour;
       uint8_t compress;
       uint8_t filter;
       uint8_t interlace;
    } IHDR;
    uint8_t *PLTE;               // Malloc'd PLTE
-   uint8_t tRNS;                // Malloc'd tRNS
+   uint8_t *tRNS;               // Malloc'd tRNS
 };
 
 static void *
@@ -65,33 +68,42 @@ lwpng_free (void *opaque, void *address)
 }
 
 static const char *
-lwpng_byte (lwpng_t * p, uint8_t b)
+idat_byte (lwpng_t * p, uint8_t b)
+{
+   // TODO
+   return NULL;
+}
+
+static const char *
+png_byte (lwpng_t * p, uint8_t b)
 {                               // process byte
 #ifdef	CONFIG_LWPNG_CHECKS
    if (p->end)
       return "Data after end";
 #endif
    p->remaining--;
+#ifdef	CONFIG_LWPNG_CHECKS
+   // TODO crc
+#endif
    switch (p->state)
    {
    case STATE_SIGNATURE:
       if (b != png_signature[sizeof (png_signature) - p->remaining])
-         return "Bad signature";	// This stays even when CHECKS not set - because we may have been sent a non PNG file
+         return "Bad signature";        // This stays even when CHECKS not set - because we may have been sent a non PNG file
       break;
-   case STATE_CRC:
-      // TODO CRC
+   case STATE_CRC:             // CRC already handled
       break;
    case STATE_IHDR:
-      // TODO
+      ((uint8_t *) & p->IHDR)[sizeof (p->IHDR) - p->remaining] = b;
       break;
    case STATE_PLTE:
-      // TODO
+      p->PLTE[p->PLTE_len++] = b;
       break;
    case STATE_tRNS:
-      // TODO
+      p->tRNS[p->tRNS_len++] = b;
       break;
    case STATE_IDAT:
-      // TODO
+      p->error = idat_byte (p, b);
       break;
    case STATE_DISCARD:
       break;
@@ -102,6 +114,10 @@ lwpng_byte (lwpng_t * p, uint8_t b)
    }
    if (!p->remaining)
    {                            // next state
+#ifdef	CONFIG_LWPNG_CHECKS
+      if (p->state == STATE_CRC && p->crc)
+         return "Bad CRC";
+#endif
       if (p->state == STATE_CHUNK)
       {                         // Start of chunk
          p->remaining = p->chunk.length = ntohl (p->chunk.length);
@@ -123,11 +139,12 @@ lwpng_byte (lwpng_t * p, uint8_t b)
 #endif
             if (!memcmp (p->chunk.type, "IDAT", 4))
             {
-#ifdef	CONFIG_LWPNG_CHECKS
-               p->data = 1;
-#endif
+               if (!p->data)
+               {                // Start
+                  p->data = 1;
+                  // TODO start callback
+               }
                p->state = STATE_IDAT;
-               // TODO
             } else if (!memcmp (p->chunk.type, "PLTE", 4))
             {
 #ifdef	CONFIG_LWPNG_CHECKS
@@ -137,7 +154,8 @@ lwpng_byte (lwpng_t * p, uint8_t b)
                   return "Duplicate PLTE";
 #endif
                p->state = STATE_PLTE;
-               // TODO
+               if (!(p->PLTE = p->mz.zalloc (p->mz.opaque, 1, p->remaining)))
+                  return "Out of memory";
             } else if (!memcmp (p->chunk.type, "tRNS", 4))
             {
 #ifdef	CONFIG_LWPNG_CHECKS
@@ -147,7 +165,8 @@ lwpng_byte (lwpng_t * p, uint8_t b)
                   return "Duplicate tRNS";
 #endif
                p->state = STATE_tRNS;
-               // TODO
+               if (!(p->tRNS = p->mz.zalloc (p->mz.opaque, 1, p->remaining)))
+                  return "Out of memory";
             } else if (!memcmp (p->chunk.type, "IEND", 4))
             {
 #ifdef	CONFIG_LWPNG_CHECKS
@@ -160,8 +179,31 @@ lwpng_byte (lwpng_t * p, uint8_t b)
          }
       } else if (p->state > STATE_CRC)
       {                         // End of chunk
+         if (p->state == STATE_IHDR)
+         {
+            p->IHDR.width = ntohl (p->IHDR.width);
+            p->IHDR.height = ntohl (p->IHDR.height);
+#ifdef	CONFIG_LWPNG_CHECKS
+            if (!p->IHDR.width || (p->IHDR.width & 0x80000000))
+               return "Invalid width";
+            if (!p->IHDR.height || (p->IHDR.height & 0x80000000))
+               return "Invalid height";
+            if (p->IHDR.depth != 1 && p->IHDR.depth != 2 && p->IHDR.depth != 4 && p->IHDR.depth != 8 && p->IHDR.depth != 16)
+               return "Invalid depth";
+            if (p->IHDR.colour != 0 && p->IHDR.colour != 2 && p->IHDR.colour != 3 && p->IHDR.colour != 4 && p->IHDR.colour != 6)
+               return "Invalid colour";
+            if (p->IHDR.compress)
+               return "Invalid compression";
+            if (p->IHDR.filter)
+               return "Invalid filter";
+            if (p->IHDR.interlace > 1)
+               return "Invalid interlace";
+#endif
+         }
          p->state = STATE_CRC;
+#ifdef	CONFIG_LWPNG_CHECKS
          p->remaining = sizeof (p->crc);;
+#endif
       }
       if (!p->remaining)
       {                         // Next chunk
@@ -203,7 +245,7 @@ lwpng_data (lwpng_t * p, size_t len, uint8_t * data)
    if (!p)
       return "No control structure";
    while (!p->error && len--)
-      p->error = lwpng_byte (p, *data++);
+      p->error = png_byte (p, *data++);
    return p->error;
 }
 
@@ -218,6 +260,10 @@ lwpng_end (lwpng_t ** pp)
    const char *e = p->error;
    if (!e && !p->end)
       e = "Unclean end";
+   if (p->PLTE)
+      p->mz.zfree (p->opaque, p->PLTE);
+   if (p->tRNS)
+      p->mz.zfree (p->opaque, p->tRNS);
    p->mz.zfree (p->mz.opaque, p);
    return e;
 }
