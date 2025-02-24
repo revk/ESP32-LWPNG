@@ -45,6 +45,11 @@ static const uint32_t crc_table[] = {
 
 static const uint8_t png_signature[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
 
+static const uint8_t adam7x[] = { 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
+static const uint8_t adam7xstep[] = { 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
+static const uint8_t adam7y[] = { 0, 0, 0, 4, 0, 2, 0, 1 };     // Y start
+static const uint8_t adam7ystep[] = { 1, 8, 8, 8, 4, 4, 2, 2 }; // Y step
+
 enum
 {
    STATE_SIGNATURE,             // Loading signature
@@ -132,10 +137,86 @@ paeth (uint8_t a, uint8_t b, uint8_t c)
    return c;
 }
 
-static void report(lwpng_t *p)
+static void
+report (lwpng_t * p)
 {
-	// TODO adam7
-	// TODO multiple bpp
+   if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ 2) & 3))
+   {                            // Multiple pixel per byte
+      uint8_t B = p->pixel[0];
+      uint8_t step = adam7xstep[p->adam7];
+      uint8_t steps = 8 / p->IHDR.depth;
+      uint32_t x = p->x;
+      while (steps-- && !p->error)
+      {
+         uint16_t r = 0,
+            g = 0,
+            b = 0,
+            a = 0xFFFF;
+         uint8_t v = (B >> (8 - p->IHDR.depth));
+         if (p->IHDR.colour & 1)
+         {                      // Palette
+            if (!p->PLTE || v > p->PLTE_len / 3)
+               a = 0;
+            else
+            {
+               r = p->PLTE[v * 3 + 0] * 257;
+               g = p->PLTE[v * 3 + 1] * 257;
+               b = p->PLTE[v * 3 + 2] * 257;
+               if (p->tRNS && v < p->tRNS_len)
+                  a = p->tRNS[v] * 257;
+            }
+         } else
+         {                      // Grey
+            if (p->IHDR.depth == 1)
+               r = g = b = v * 0xFFFF;
+            else if (p->IHDR.depth == 2)
+               r = g = b = v * 0xAAAA;
+            else if (p->IHDR.depth == 4)
+               r = g = b = v * 0x8888;
+            else
+               r = g = b = v * 0x8080;
+            if (p->tRNS && p->tRNS_len == 2 && r == p->tRNS[0] * 256 + p->tRNS[1])
+               a = 0;
+         }
+         if (p->cb_pixel)
+            p->error = p->cb_pixel (p->opaque, x, p->y, r, g, b, a);
+         B <<= p->IHDR.depth;
+         x += step;
+      }
+   } else
+   {                            // Single pixel
+      uint8_t *x = p->pixel;
+      uint16_t r,
+        g,
+        b,
+        a = 0xFFFF;
+      if (p->IHDR.depth == 16)
+      {
+         r = *x++;
+         r = (r << 8) + *x++;
+         g = *x++;
+         g = (g << 8) + *x++;
+         b = *x++;
+         r = (b << 8) + *x++;
+         if (p->IHDR.colour & 4)
+         {
+            a = *x++;
+            a = (a << 8) + *x++;
+         }
+      } else
+      {
+         r = 257 * *x++;
+         g = 257 * *x++;
+         b = 257 * *x++;
+         if (p->IHDR.colour & 4)
+            a = 257 * *x++;
+      }
+      if (p->tRNS && p->tRNS_len == 6 && r == p->tRNS[0] * 256 + p->tRNS[1] && g == p->tRNS[2] * 256 + p->tRNS[3]
+          && b == p->tRNS[4] * 256 + p->tRNS[4])
+         a = 0;
+      if (p->cb_pixel)
+         p->error = p->cb_pixel (p->opaque, p->x, p->y, r, g, b, a);
+   }
 }
 
 static const char *
@@ -185,17 +266,29 @@ scan_byte (lwpng_t * p, uint8_t b)
       report (p);
       printf (" ");
       p->bpos = 0;
-      // TODO adam7
-      if (p->bpp == 1 && ((p->IHDR.colour ^ 2) & 3))
-         p->x += 8 / p->IHDR.depth;
+      uint8_t step = adam7xstep[p->adam7];
+      if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ 2) & 3))
+         p->x += step * 8 / p->IHDR.depth;      // multiple bytes
       else
-         p->x++;
+         p->x += step;
       p->ppos++;
       if (p->x >= p->IHDR.width)
       {                         // End of line
          report (p);
-         memcpy (p->scan + (uint64_t) (p->ppos - 1) * p->bpp, p->pixel, p->bpp); // Last pixel stored
-         p->y++;
+         memcpy (p->scan + (uint64_t) (p->ppos - 1) * p->bpp, p->pixel, p->bpp);        // Last pixel stored
+         p->y += adam7ystep[p->adam7];
+         if (p->adam7 && p->y >= p->IHDR.height)
+         {                      // Start of new scan
+            uint64_t bytes = 0;
+            if (((p->IHDR.colour ^ 2) & 3))
+               bytes = ((uint64_t) p->IHDR.width * 8 + 7) / p->IHDR.depth;
+            else
+               bytes = (uint64_t) p->IHDR.width * p->bpp;
+            memset (p->scan, 0, bytes);
+            p->adam7++;
+            p->y = adam7y[p->adam7];
+            p->x = adam7x[p->adam7];
+         }
          p->filter = 7;         // Flag start of line
 #ifdef	CONFIG_LWPNG_DEBUG
          printf ("\n");
