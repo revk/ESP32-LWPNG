@@ -45,10 +45,10 @@ static const uint32_t crc_table[] = {
 
 static const uint8_t png_signature[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
 
-static const uint8_t adam7x[] = { 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
-static const uint8_t adam7xstep[] = { 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
-static const uint8_t adam7y[] = { 0, 0, 0, 4, 0, 2, 0, 1 };     // Y start
-static const uint8_t adam7ystep[] = { 1, 8, 8, 8, 4, 4, 2, 2 }; // Y step
+static const uint8_t adam7x[] = 	{ 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
+static const uint8_t adam7xstep[] = 	{ 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
+static const uint8_t adam7y[] = 	{ 0, 0, 0, 4, 0, 2, 0, 1 };     // Y start
+static const uint8_t adam7ystep[] = 	{ 1, 8, 8, 8, 4, 4, 2, 2 }; // Y step
 
 enum
 {
@@ -227,10 +227,9 @@ scan_byte (lwpng_t * p, uint8_t b)
       if (b > 4)
          return "Bad filter";
       p->filter = b;
-      p->x = 0;
       p->ppos = 0;
 #ifdef	CONFIG_LWPNG_DEBUG
-      printf ("%d:", b);
+      printf ("%d/%d:", b,p->adam7);
 #endif
       return NULL;
    }
