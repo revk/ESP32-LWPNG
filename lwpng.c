@@ -191,7 +191,7 @@ report (lwpng_t * p)
         b,
         a = 0xFFFF;
       if (p->IHDR.depth == 16)
-      {
+      { // 16 bit
          r = *x++;
          r = (r << 8) + *x++;
          g = *x++;
@@ -204,7 +204,7 @@ report (lwpng_t * p)
             a = (a << 8) + *x++;
          }
       } else
-      {
+      { // 8 bit
          r = 257 * *x++;
          g = 257 * *x++;
          b = 257 * *x++;
@@ -274,7 +274,6 @@ scan_byte (lwpng_t * p, uint8_t b)
       p->ppos++;
       if (p->x >= p->IHDR.width)
       {                         // End of line
-         report (p);
          memcpy (p->scan + (uint64_t) (p->ppos - 1) * p->bpp, p->pixel, p->bpp);        // Last pixel stored
          p->y += adam7ystep[p->adam7];
          if (p->adam7 && p->y >= p->IHDR.height)
@@ -286,8 +285,8 @@ scan_byte (lwpng_t * p, uint8_t b)
                bytes = (uint64_t) p->IHDR.width * p->bpp;
             memset (p->scan, 0, bytes);
             p->adam7++;
-            p->y = adam7y[p->adam7];
             p->x = adam7x[p->adam7];
+            p->y = adam7y[p->adam7];
          }
          p->filter = 7;         // Flag start of line
 #ifdef	CONFIG_LWPNG_DEBUG
@@ -427,14 +426,19 @@ png_byte (lwpng_t * p, uint8_t b)
                   } else
                   {             // Colour per pixel (8 or 16 bits) possibly with alpha
                      p->bpp = (p->IHDR.depth / 8) * 3;
-                     if (p->IHDR.colour & 4)
-                        p->bpp += 2;
                      bytes = (uint64_t) p->IHDR.width * p->bpp;
                   }
+                     if (p->IHDR.colour & 4)
+                        p->bpp += (p->IHDR.depth / 8); // Alpha
                   if (!(p->scan = p->mz.zalloc (p->mz.opaque, 1, bytes)))
                      return "Out of memory";
                   memset (p->scan, 0, bytes);
                   p->filter = 7;        // Start of scan line
+                  if (p->IHDR.interlace)
+                     p->adam7 = 1;
+#ifdef	CONFIG_LWPNG_DEBUG
+		  warnx("bpp=%d bytes=%lu",p->bpp,bytes);
+#endif
                }
                p->state = STATE_IDAT;
             } else if (!memcmp (p->chunk.type, "PLTE", 4))
