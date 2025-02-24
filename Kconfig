@@ -1,0 +1,15 @@
+menu "LWPNG"
+
+	config LWPNG_CHECKS
+        bool "File validity checks"
+        default n
+        help
+		Do checks on file validity - not needed if we assume all files are valid PNGs
+
+	config LWPNG_DEBUG
+        bool "Debug output"
+        default n
+        help
+		Debug output
+
+endmenu

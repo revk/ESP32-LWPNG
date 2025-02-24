@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <popt.h>
 #include <time.h>
 #include <sys/time.h>
 #include <stdlib.h>
@@ -12,32 +11,41 @@
 
 int debug = 0;
 
+
+const char *
+start (void *opaque, uint32_t w, uint32_t h, uint8_t hasalpha)
+{
+   warnx ("W=%u H=%u%s", w, h, hasalpha ? " alpha" : "");
+   return NULL;
+}
+
+const char *
+pixel (void *opaque, uint32_t x, uint32_t y, uint16_t r, uint16_t g, uint16_t b, uint16_t a)
+{
+   warnx ("X=%u Y=%u R=%u G=%u B=%u A=%u", x, y, r, g, b, a);
+   return NULL;
+}
+
 int
 main (int argc, const char *argv[])
 {
-   poptContext optCon;          // context for parsing command-line options
-   {                            // POPT
-      const struct poptOption optionsTable[] = {
-//      {"string", 's', POPT_ARG_STRING, &string, 0, "String", "string"},
-//      {"string-default", 'S', POPT_ARG_STRING | POPT_ARGFLAG_SHOW_DEFAULT, &string, 0, "String", "string"},
-         {"debug", 'v', POPT_ARG_NONE, &debug, 0, "Debug"},
-         POPT_AUTOHELP {}
-      };
+   if (argc != 2)
+      errx (1, "filename");
+   FILE *f = fopen (argv[1], "r");
+   if (!f)
+      err (1, "Cannot open %s", argv[1]);
 
-      optCon = poptGetContext (NULL, argc, argv, optionsTable, 0);
-      //poptSetOtherOptionHelp (optCon, "");
+   lwpng_t *p = lwpng_init (NULL, &start, &pixel, NULL, NULL, NULL);
+   if (!p)
+      errx (1, "Failed to init");
 
-      int c;
-      if ((c = poptGetNextOpt (optCon)) < -1)
-         errx (1, "%s: %s\n", poptBadOption (optCon, POPT_BADOPTION_NOALIAS), poptStrerror (c));
-
-      if (poptPeekArg (optCon))
-      {
-         poptPrintUsage (optCon, stderr, 0);
-         return -1;
-      }
-   }
-
-   poptFreeContext (optCon);
+   unsigned char buf[100];
+   size_t l;
+   while ((l = fread (buf, 1, sizeof (buf), f)) > 0)
+      lwpng_data (p, l, buf);
+   const char *e = lwpng_end (&p);
+   fclose (f);
+   if (e)
+      errx (1, "Failed %s", e);
    return 0;
 }
