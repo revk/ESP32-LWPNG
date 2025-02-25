@@ -43,7 +43,7 @@ This allocates a control structure, returning NULL if failed. The control struct
 
 `const char *lwpng_data(lwpng_t*,size_t len,uint8_t *data)`
 
-Call this repeatedly, or all in one go if you prefer, with bytes from the PNG. Returns NULL if OK, else an error string. Can be used one byte at a time if you wish, but blocks are likely to be more effectient.
+Call this repeatedly, or all in one go if you prefer, with bytes from the PNG in order. Returns NULL if OK, else an error string. Can be used one byte at a time if you wish, but blocks are likely to be more effectient.
 
 Note that once an error happens, all further calls do nothing and return the latched error, so you can leave checking error until the end, and check it at `lwpng_end` call.
 
