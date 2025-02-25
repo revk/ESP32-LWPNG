@@ -637,6 +637,10 @@ lwpng_end (lwpng_t ** pp)
 const char *
 lwpng_get_info (uint32_t len, uint8_t * data, uint32_t * w, uint32_t * h)
 {                               // Get file header data
+   if (w)
+      *w = 0;
+   if (h)
+      *h = 0;
    if (!data || len < 29)
       return "Not enough data";
    if (memcmp (data, png_signature, sizeof (png_signature)))
