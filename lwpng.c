@@ -4,13 +4,6 @@
 #include <malloc.h>
 #include <string.h>
 #include <arpa/inet.h>
-#ifdef	CONFIG_LWPNG_DEBUG
-#ifdef	CONFIG_IDF_TARGET
-#define	warnx	ESP_LOGE
-#else
-#include <err.h>
-#endif
-#endif
 
 #ifdef	CONFIG_LWPNG_CHECKS
 static const uint32_t crc_table[] = {
@@ -50,6 +43,10 @@ static const uint8_t adam7xstep[] = { 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
 static const uint8_t adam7y[] = { 0, 0, 0, 4, 0, 2, 0, 1 };     // Y start
 static const uint8_t adam7ystep[] = { 1, 8, 8, 8, 4, 4, 2, 2 }; // Y step
 
+#define	COLOUR_PALETTE	1
+#define	COLOUR_RGB	2
+#define	COLOUR_ALPHA	4
+
 enum
 {
    STATE_SIGNATURE,             // Loading signature
@@ -77,6 +74,13 @@ struct lwpng_s
    uint32_t crc;
    uint32_t crccheck;
 #endif
+   uint8_t *PLTE;               // Malloc'd PLTE
+   uint8_t *tRNS;               // Malloc'd tRNS
+   uint8_t *scan;               // Malloc'd scan line (max bytes)
+   uint8_t pixel[8];            // Last pixel for filter (worst case is 16 bit R G B A)
+   uint32_t y;                  // Y position from top
+   uint32_t x;                  // X position from left
+   uint32_t ppos;               // filter pixel pos
    struct __attribute__((__packed__))
    {
       uint32_t length;
@@ -92,13 +96,6 @@ struct lwpng_s
       uint8_t filter;
       uint8_t interlace;
    } IHDR;
-   uint8_t *PLTE;               // Malloc'd PLTE
-   uint8_t *tRNS;               // Malloc'd tRNS
-   uint8_t *scan;               // Malloc'd scan line (max bytes)
-   uint8_t pixel[8];            // Last pixel for filter (worst case is 16 bit R G B A)
-   uint32_t y;                  // Y position from top
-   uint32_t x;                  // X position from left
-   uint32_t ppos;               // filter pixel pos
    uint8_t state:4;             // Current state
    uint8_t bpp:4;               // BPP for filter
    uint8_t bpos:4;              // Byte in bpp for filter
@@ -140,7 +137,7 @@ paeth (uint8_t a, uint8_t b, uint8_t c)
 static void
 pixels (lwpng_t * p)
 {
-   if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ 2) & 3))
+   if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
    {                            // Multiple pixel per byte
       uint8_t B = p->pixel[0];
       uint8_t step = adam7xstep[p->adam7];
@@ -153,7 +150,7 @@ pixels (lwpng_t * p)
             b = 0,
             a = 0xFFFF;
          uint8_t v = (B >> (8 - p->IHDR.depth));
-         if (p->IHDR.colour & 1)
+         if (p->IHDR.colour & COLOUR_PALETTE)
          {                      // Palette
             if (!p->PLTE || v > p->PLTE_len / 3)
             {
@@ -196,7 +193,7 @@ pixels (lwpng_t * p)
         a = 0xFFFF;
       if (p->IHDR.depth == 16)
       {                         // 16 bit
-         if (p->IHDR.colour & 2)
+         if (p->IHDR.colour & COLOUR_RGB)
          {
             r = *x++;
             r = (r << 8) + *x++;
@@ -210,21 +207,21 @@ pixels (lwpng_t * p)
             r = (r << 8) + *x++;
             g = b = r;
          }
-         if (p->IHDR.colour & 4)
+         if (p->IHDR.colour & COLOUR_ALPHA)
          {
             a = *x++;
             a = (a << 8) + *x++;
          }
       } else
       {                         // 8 bit
-         if (p->IHDR.colour & 2)
+         if (p->IHDR.colour & COLOUR_RGB)
          {
             r = 257 * *x++;
             g = 257 * *x++;
             b = 257 * *x++;
          } else
             r = g = b = 257 * *x++;
-         if (p->IHDR.colour & 4)
+         if (p->IHDR.colour & COLOUR_ALPHA)
             a = 257 * *x++;
       }
       if (p->tRNS && p->tRNS_len == 6 && r == p->tRNS[0] * 256 + p->tRNS[1] && g == p->tRNS[2] * 256 + p->tRNS[3]
@@ -244,7 +241,7 @@ scan_byte (lwpng_t * p, uint8_t b)
          return "Bad filter";
       p->filter = b;
       p->ppos = 0;
-#ifdef	CONFIG_LWPNG_DEBUG
+#ifdef	DEBUG
       if (p->adam7)
          printf ("A%u", p->adam7);
       printf ("Y%u", p->y);
@@ -276,7 +273,7 @@ scan_byte (lwpng_t * p, uint8_t b)
       b += paeth (l, u, ul);
       break;
    }
-#ifdef	CONFIG_LWPNG_DEBUG
+#ifdef	DEBUG
    printf ("%02X", b);
 #endif
    if (p->ppos > 0)
@@ -289,7 +286,7 @@ scan_byte (lwpng_t * p, uint8_t b)
       printf (" ");
       p->bpos = 0;
       uint8_t step = adam7xstep[p->adam7];
-      if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ 2) & 3))
+      if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
          p->x += step * 8 / p->IHDR.depth;      // multiple bytes
       else
          p->x += step;
@@ -303,7 +300,7 @@ scan_byte (lwpng_t * p, uint8_t b)
          if (p->adam7 && (p->x >= p->IHDR.width || p->y >= p->IHDR.height))
          {                      // End of adam7 scan
             uint64_t bytes = 0;
-            if (((p->IHDR.colour ^ 2) & 3))
+            if (((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
                bytes = ((uint64_t) p->IHDR.width * 8 + 7) / p->IHDR.depth;
             else
                bytes = (uint64_t) p->IHDR.width * p->bpp;
@@ -316,7 +313,7 @@ scan_byte (lwpng_t * p, uint8_t b)
             }
          }
          p->filter = 7;         // Flag start of line
-#ifdef	CONFIG_LWPNG_DEBUG
+#ifdef	DEBUG
          printf ("\n");
 #endif
       }
@@ -325,11 +322,14 @@ scan_byte (lwpng_t * p, uint8_t b)
 }
 
 static const char *
-idat_byte (lwpng_t * p, uint8_t b)
-{                               // process byte from IDAT, compressed
-   p->mz.next_in = &b;
-   p->mz.avail_in = 1;
+idat_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
+{                               // process bytes from IDAT, compressed
+   p->mz.next_in = in;
+   p->mz.avail_in = len;
    p->mz.total_in = 0;
+#ifdef	DEBUG
+   uint32_t o = 0;
+#endif
    do
    {
       uint8_t out[16];
@@ -337,61 +337,60 @@ idat_byte (lwpng_t * p, uint8_t b)
       p->mz.avail_out = sizeof (out);
       p->mz.total_out = 0;
       int e = mz_inflate (&p->mz, 0);
-      if (e != Z_OK && e != Z_STREAM_END)
-         return "Inflate not OK";
+      if (e != Z_OK && e != Z_BUF_ERROR) return "Inflate not OK";
       for (int i = 0; i < p->mz.total_out; i++)
          scan_byte (p, out[i]);
+#ifdef	DEBUG
+      o += p->mz.total_out;
+#endif
    }
    while (p->mz.avail_in || !p->mz.avail_out);
+#ifdef	DEBUG
+   printf ("Inflate In=%u out=%u\n", len, o);
+#endif
    return NULL;
 }
 
 static const char *
-png_byte (lwpng_t * p, uint8_t b)
-{                               // process byte from PNG file
+png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
+{                               // process byte from PNG file - up to p->remaining only
 #ifdef	CONFIG_LWPNG_CHECKS
    if (p->state != STATE_CRC && p->end)
-   {
-#ifdef	CONFIG_LWPNG_DEBUG
-      warnx ("Data after end %02X", b);
-#endif
       return "Data after end";
-   }
 #endif
-   p->remaining--;
 #ifdef	CONFIG_LWPNG_CHECKS
    if (p->state != STATE_CRC)
-      p->crc = crc_table[(p->crc ^ b) & 0xff] ^ (p->crc >> 8);
+      for (uint32_t i = 0; i < len; i++)
+         p->crc = crc_table[(p->crc ^ in[i]) & 0xff] ^ (p->crc >> 8);
 #endif
    switch (p->state)
    {
    case STATE_SIGNATURE:
-      if (b != png_signature[sizeof (png_signature) - p->remaining - 1])
+      if (memcmp (png_signature + sizeof (png_signature) - p->remaining, in, len))
          return "Bad signature";        // This stays even when CHECKS not set - because we may have been sent a non PNG file
       break;
    case STATE_CRC:             // CRC already handled
 #ifdef	CONFIG_LWPNG_CHECKS
-      p->crccheck = (p->crccheck << 8) | b;
+      for (uint32_t i = 0; i < len; i++)
+         p->crccheck = (p->crccheck << 8) | in[i];
 #endif
       break;
    case STATE_CHUNK:
-      ((uint8_t *) & p->chunk)[sizeof (p->chunk) - p->remaining - 1] = b;
-#ifdef	CONFIG_LWPNG_CHECKS
-      if (p->remaining == 4)
-         p->crc = 0xffffffff;   // Start CRC
-#endif
+      memcpy (((uint8_t *) & p->chunk) + sizeof (p->chunk) - p->remaining, in, len);
       break;
    case STATE_IHDR:
-      ((uint8_t *) & p->IHDR)[sizeof (p->IHDR) - p->remaining - 1] = b;
+      memcpy (((uint8_t *) & p->IHDR) + sizeof (p->IHDR) - p->remaining, in, len);
       break;
    case STATE_PLTE:
-      p->PLTE[p->PLTE_len++] = b;
+      memcpy (p->PLTE + p->PLTE_len, in, len);
+      p->PLTE_len += len;
       break;
    case STATE_tRNS:
-      p->tRNS[p->tRNS_len++] = b;
+      memcpy (p->tRNS + p->tRNS_len, in, len);
+      p->tRNS_len += len;
       break;
    case STATE_IDAT:
-      p->error = idat_byte (p, b);
+      p->error = idat_bytes (p, len, in);
       break;
    case STATE_DISCARD:
       break;
@@ -400,6 +399,7 @@ png_byte (lwpng_t * p, uint8_t b)
       return "Bad state";
 #endif
    }
+   p->remaining -= len;
    if (!p->remaining)
    {                            // next state
       if (p->state == STATE_SIGNATURE)
@@ -410,20 +410,20 @@ png_byte (lwpng_t * p, uint8_t b)
       {                         // CRC done
 #ifdef	CONFIG_LWPNG_CHECKS
          if (p->crc != (p->crccheck ^ 0xFFFFFFFF))
-         {
-#ifdef	CONFIG_LWPNG_DEBUG
-            warnx ("Chunk %.4s CRC %08X %08X", p->chunk.type, p->crc, p->crccheck ^ 0xFFFFFFFF);
-#endif
             return "Bad CRC";
-         }
 #endif
          p->state = STATE_CHUNK;        // ready for next chunk
          p->remaining = sizeof (p->chunk);
       } else if (p->state == STATE_CHUNK)
       {                         // Start of chunk - work out type
+#ifdef	CONFIG_LWPNG_CHECKS
+         p->crc = 0xFFFFFFFF;   // Start CRC
+         for (uint32_t i = 0; i < 4; i++)
+            p->crc = crc_table[(p->crc ^ p->chunk.type[i]) & 0xff] ^ (p->crc >> 8);
+#endif
          p->remaining = p->chunk.length = ntohl (p->chunk.length);
-#ifdef	CONFIG_LWPNG_DEBUG
-         warnx ("Chunk %.4s Len %u", p->chunk.type, p->chunk.length);
+#ifdef	DEBUG
+         printf ("Chunk %.4s Len %u\n", p->chunk.type, p->chunk.length);
 #endif
          if (!memcmp (p->chunk.type, "IHDR", 4))
          {
@@ -447,26 +447,25 @@ png_byte (lwpng_t * p, uint8_t b)
                {                // Start
                   p->data = 1;
                   uint64_t bytes = 0;
-                  if (((p->IHDR.colour ^ 2) & 3))
-                  {             // Indexed or grey, packed
-                     p->bpp = ((p->IHDR.depth / 8) ? : 1);
+                  if (((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
+                     p->bpp = ((p->IHDR.depth / 8) ? : 1);      // Indexed or grey, may be packed, grey may have alpha
+                  else
+                     p->bpp = (p->IHDR.depth / 8) * 3;  // Colour per pixel (8 or 16 bits) possibly with alpha
+                  if ((p->IHDR.colour & (COLOUR_PALETTE | COLOUR_ALPHA)) == COLOUR_ALPHA)
+                     p->bpp += (p->IHDR.depth / 8);     // Alpha non indexed
+                  if (p->IHDR.depth < 8)
                      bytes = ((uint64_t) p->IHDR.width * 8 + 7) / p->IHDR.depth;
-                  } else
-                  {             // Colour per pixel (8 or 16 bits) possibly with alpha
-                     p->bpp = (p->IHDR.depth / 8) * 3;
+                  else
                      bytes = (uint64_t) p->IHDR.width * p->bpp;
-                  }
-                  if (p->IHDR.colour & 4)
-                     p->bpp += (p->IHDR.depth / 8);     // Alpha
+#ifdef	DEBUG
+                  printf ("Bytes %lu BPP %u\n", bytes, p->bpp);
+#endif
                   if (!(p->scan = p->mz.zalloc (p->mz.opaque, 1, bytes)))
                      return "Out of memory";
                   memset (p->scan, 0, bytes);
                   p->filter = 7;        // Start of scan line
                   if (p->IHDR.interlace)
                      p->adam7 = 1;
-#ifdef	CONFIG_LWPNG_DEBUG
-                  warnx ("bpp=%d bytes=%lu", p->bpp, bytes);
-#endif
                }
                p->state = STATE_IDAT;
             } else if (!memcmp (p->chunk.type, "PLTE", 4))
@@ -478,10 +477,10 @@ png_byte (lwpng_t * p, uint8_t b)
                   return "Duplicate PLTE";
                if (p->remaining < 3 || p->remaining > 256 * 3 || p->remaining % 3)
                   return "Bad PLTE length";
-               if (!(p->IHDR.colour & 2))
+               if (!(p->IHDR.colour & COLOUR_RGB))
                   return "PLTE not expected";
 #endif
-               if (p->IHDR.colour & 1)
+               if (p->IHDR.colour & COLOUR_PALETTE)
                {
                   p->state = STATE_PLTE;
                   if (!(p->PLTE = p->mz.zalloc (p->mz.opaque, 1, p->remaining)))
@@ -495,10 +494,10 @@ png_byte (lwpng_t * p, uint8_t b)
                   return "tRNS too late";
                if (p->tRNS)
                   return "Duplicate tRNS";
-               if (!p->remaining || p->remaining > 256 || (!p->IHDR.colour && p->remaining != 2) || (p->IHDR.colour == 2
-                                                                                                     && p->remaining != 6))
+               if (!p->remaining || p->remaining > 256 || (!p->IHDR.colour && p->remaining != 2)
+                   || (p->IHDR.colour == COLOUR_RGB && p->remaining != 6))
                   return "Bad tRNS length";
-               if (p->IHDR.colour & 4)
+               if (p->IHDR.colour & COLOUR_ALPHA)
                   return "tRNS not expected";
 #endif
                p->state = STATE_tRNS;
@@ -530,11 +529,13 @@ png_byte (lwpng_t * p, uint8_t b)
                return "Invalid width";
             if (!p->IHDR.height || (p->IHDR.height & 0x80000000))
                return "Invalid height";
-            if (p->IHDR.colour != 0 && p->IHDR.colour != 2 && p->IHDR.colour != 3 && p->IHDR.colour != 4 && p->IHDR.colour != 6)
+            if (p->IHDR.colour != 0 && p->IHDR.colour != COLOUR_RGB && p->IHDR.colour != (COLOUR_PALETTE | COLOUR_RGB)
+                && p->IHDR.colour != COLOUR_ALPHA && p->IHDR.colour != (COLOUR_ALPHA | COLOUR_RGB))
                return "Invalid colour";
             if (p->IHDR.depth != 1 && p->IHDR.depth != 2 && p->IHDR.depth != 4 && p->IHDR.depth != 8 && p->IHDR.depth != 16)
                return "Invalid depth";
-            if ((p->IHDR.colour && p->IHDR.colour != 3 && p->IHDR.depth < 8) || (p->IHDR.colour == 3 && p->IHDR.depth > 8))
+            if ((p->IHDR.colour && p->IHDR.colour != (COLOUR_PALETTE | COLOUR_RGB) && p->IHDR.depth < 8)
+                || (p->IHDR.colour == (COLOUR_PALETTE | COLOUR_RGB) && p->IHDR.depth > 8))
                return "Invalid colour+depth";
             if (p->IHDR.compress)
                return "Invalid compression";
@@ -545,11 +546,11 @@ png_byte (lwpng_t * p, uint8_t b)
 #endif
             if (p->cb_start)
             {
-#ifdef	CONFIG_LWPNG_DEBUG
-               warnx ("W=%d H=%d colour=%02X depth=%02X compress=%02X filter=%02X interlace=%02X", p->IHDR.width, p->IHDR.height,
-                      p->IHDR.colour, p->IHDR.depth, p->IHDR.compress, p->IHDR.filter, p->IHDR.interlace);
+#ifdef	DEBUG
+               printf ("W=%d H=%d colour=%02X depth=%02X compress=%02X filter=%02X interlace=%02X\n", p->IHDR.width, p->IHDR.height,
+                       p->IHDR.colour, p->IHDR.depth, p->IHDR.compress, p->IHDR.filter, p->IHDR.interlace);
 #endif
-               p->error = p->cb_start (p->opaque, p->IHDR.width, p->IHDR.height, p->IHDR.colour & 4);
+               p->error = p->cb_start (p->opaque, p->IHDR.width, p->IHDR.height, p->IHDR.colour & COLOUR_ALPHA);
             }
          }
       }
@@ -596,8 +597,15 @@ lwpng_data (lwpng_t * p, size_t len, uint8_t * data)
 {
    if (!p)
       return "No control structure";
-   while (!p->error && len--)
-      p->error = png_byte (p, *data++);
+   while (!p->error && len)
+   {
+      uint32_t q = p->remaining;        // Up to remaining bytes at a time
+      if (q > len)
+         q = len;
+      p->error = png_bytes (p, q, data);
+      len -= q;
+      data += q;
+   }
    return p->error;
 }
 
