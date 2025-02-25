@@ -65,7 +65,7 @@ struct lwpng_s
 {
    void *opaque;                // Used for callback
    const char *error;           // Set if error state
-   mz_stream mz;                // Inflate
+   z_stream z;                // Inflate
    lwpng_cb_start_t *cb_start;  // Call back start
    lwpng_cb_pixel_t *cb_pixel;  // Call back pixel
    uint32_t remaining;          // Bytes remaining in current state
@@ -110,7 +110,7 @@ struct lwpng_s
 };
 
 static void *
-lwpng_alloc (void *opaque, mz_alloc_int items, mz_alloc_int size)
+lwpng_alloc (void *opaque, alloc_int items, alloc_int size)
 {
    return malloc (items * size);
 }
@@ -327,27 +327,27 @@ scan_byte (lwpng_t * p, uint8_t b)
 static const char *
 idat_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 {                               // process bytes from IDAT, compressed
-   p->mz.next_in = in;
-   p->mz.avail_in = len;
-   p->mz.total_in = 0;
+   p->z.next_in = in;
+   p->z.avail_in = len;
+   p->z.total_in = 0;
 #ifdef	DEBUG
    uint32_t o = 0;
 #endif
    do
    {
       uint8_t out[16];
-      p->mz.next_out = out;
-      p->mz.avail_out = sizeof (out);
-      p->mz.total_out = 0;
-      int e = mz_inflate (&p->mz, 0);
+      p->z.next_out = out;
+      p->z.avail_out = sizeof (out);
+      p->z.total_out = 0;
+      int e = inflate (&p->z, 0);
       if (e != Z_OK && e!=Z_STREAM_END &&e != Z_BUF_ERROR) return "Inflate not OK";
-      for (int i = 0; i < p->mz.total_out; i++)
+      for (int i = 0; i < p->z.total_out; i++)
          scan_byte (p, out[i]);
 #ifdef	DEBUG
-      o += p->mz.total_out;
+      o += p->z.total_out;
 #endif
    }
-   while (p->mz.avail_in || !p->mz.avail_out);
+   while (p->z.avail_in || !p->z.avail_out);
 #ifdef	DEBUG
    printf ("Inflate In=%u out=%u\n", len, o);
 #endif
@@ -463,7 +463,7 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 #ifdef	DEBUG
                   printf ("Bytes %lu BPP %u\n", bytes, p->bpp);
 #endif
-                  if (!(p->scan = p->mz.zalloc (p->mz.opaque, 1, bytes)))
+                  if (!(p->scan = p->z.zalloc (p->z.opaque, 1, bytes)))
                      return "Out of memory";
                   memset (p->scan, 0, bytes);
                   p->filter = 7;        // Start of scan line
@@ -486,7 +486,7 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
                if (p->IHDR.colour & COLOUR_PALETTE)
                {
                   p->state = STATE_PLTE;
-                  if (!(p->PLTE = p->mz.zalloc (p->mz.opaque, 1, p->remaining)))
+                  if (!(p->PLTE = p->z.zalloc (p->z.opaque, 1, p->remaining)))
                      return "Out of memory";
                } else
                   p->state = STATE_DISCARD;     // Pallette not used
@@ -504,7 +504,7 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
                   return "tRNS not expected";
 #endif
                p->state = STATE_tRNS;
-               if (!(p->tRNS = p->mz.zalloc (p->mz.opaque, 1, p->remaining)))
+               if (!(p->tRNS = p->z.zalloc (p->z.opaque, 1, p->remaining)))
                   return "Out of memory";
             } else if (!memcmp (p->chunk.type, "IEND", 4))
             {
@@ -571,7 +571,7 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 
 // Allocate a new PNG decode, alloc/free can be NULL for system defaults
 lwpng_t *
-lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, mz_alloc_func zalloc, mz_free_func zfree,
+lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree,
             void *allocopaque)
 {
    if (!zalloc)
@@ -585,11 +585,11 @@ lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, mz
    p->cb_start = start;
    p->cb_pixel = pixel;
    p->opaque = opaque;
-   p->mz.zalloc = zalloc;
-   p->mz.zfree = zfree;
-   p->mz.opaque = allocopaque;
+   p->z.zalloc = zalloc;
+   p->z.zfree = zfree;
+   p->z.opaque = allocopaque;
    p->remaining = sizeof (png_signature);
-   if (mz_inflateInit (&p->mz) != Z_OK)
+   if (inflateInit (&p->z) != Z_OK)
       p->error = "Inflate init error";
    return p;
 }
@@ -624,12 +624,12 @@ lwpng_end (lwpng_t ** pp)
    if (!e && !p->end)
       e = "Unclean end";
    if (p->PLTE)
-      p->mz.zfree (p->opaque, p->PLTE);
+      p->z.zfree (p->opaque, p->PLTE);
    if (p->tRNS)
-      p->mz.zfree (p->opaque, p->tRNS);
+      p->z.zfree (p->opaque, p->tRNS);
    if (p->scan)
-      p->mz.zfree (p->opaque, p->scan);
-   inflateEnd (&p->mz);
-   p->mz.zfree (p->mz.opaque, p);
+      p->z.zfree (p->opaque, p->scan);
+   inflateEnd (&p->z);
+   p->z.zfree (p->z.opaque, p);
    return e;
 }
