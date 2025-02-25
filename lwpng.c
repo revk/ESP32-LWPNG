@@ -1,5 +1,6 @@
 // PNG expander
 
+#include "sdkconfig.h"
 #include <lwpng.h>
 #include <malloc.h>
 #include <string.h>
@@ -283,7 +284,9 @@ scan_byte (lwpng_t * p, uint8_t b)
    if (p->bpos == p->bpp)
    {                            // End of pixel
       pixels (p);
+#ifdef	DEBUG
       printf (" ");
+#endif
       p->bpos = 0;
       uint8_t step = adam7xstep[p->adam7];
       if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
@@ -337,7 +340,7 @@ idat_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
       p->mz.avail_out = sizeof (out);
       p->mz.total_out = 0;
       int e = mz_inflate (&p->mz, 0);
-      if (e != Z_OK && e != Z_BUF_ERROR) return "Inflate not OK";
+      if (e != Z_OK && e!=Z_STREAM_END &&e != Z_BUF_ERROR) return "Inflate not OK";
       for (int i = 0; i < p->mz.total_out; i++)
          scan_byte (p, out[i]);
 #ifdef	DEBUG
