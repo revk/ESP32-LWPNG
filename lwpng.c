@@ -1,6 +1,6 @@
 // PNG expander
 
-#include "sdkconfig.h"
+#include <sdkconfig.h>
 #include <lwpng.h>
 #include <malloc.h>
 #include <string.h>
