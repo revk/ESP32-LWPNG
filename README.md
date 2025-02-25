@@ -37,7 +37,7 @@ This allocates a control structure, returning NULL if failed. The control struct
 |`pixel`|The callback for each pixel, optional (can be NULL)|
 |`alloc`|The function for memory allocation, NULL for system default `malloc` (see *zlib*)|
 |`free`|The function for memory free, NULL for system default `free` (see *zlib*)|
-|`allocopaque`|Passed to *alloc* and *free* functions|
+|`allocopaque`|Passed to *alloc* and *free* functions, so can be NULL|
 
 ## Feeding data
 
