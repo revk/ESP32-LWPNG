@@ -65,7 +65,7 @@ struct lwpng_s
 {
    void *opaque;                // Used for callback
    const char *error;           // Set if error state
-   z_stream z;                // Inflate
+   z_stream z;                  // Inflate
    lwpng_cb_start_t *cb_start;  // Call back start
    lwpng_cb_pixel_t *cb_pixel;  // Call back pixel
    uint32_t remaining;          // Bytes remaining in current state
@@ -340,7 +340,8 @@ idat_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
       p->z.avail_out = sizeof (out);
       p->z.total_out = 0;
       int e = inflate (&p->z, 0);
-      if (e != Z_OK && e!=Z_STREAM_END &&e != Z_BUF_ERROR) return "Inflate not OK";
+      if (e != Z_OK && e != Z_STREAM_END && e != Z_BUF_ERROR)
+         return "Inflate not OK";
       for (int i = 0; i < p->z.total_out; i++)
          scan_byte (p, out[i]);
 #ifdef	DEBUG
@@ -571,8 +572,7 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 
 // Allocate a new PNG decode, alloc/free can be NULL for system defaults
 lwpng_t *
-lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree,
-            void *allocopaque)
+lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree, void *allocopaque)
 {
    if (!zalloc)
       zalloc = lwpng_alloc;
@@ -632,4 +632,22 @@ lwpng_end (lwpng_t ** pp)
    inflateEnd (&p->z);
    p->z.zfree (p->z.opaque, p);
    return e;
+}
+
+const char *
+lwpng_get_info (uint32_t len, uint8_t * data, uint32_t * w, uint32_t * h)
+{                               // Get file header data
+   if (!data || len < 29)
+      return "Not enough data";
+   if (memcmp (data, png_signature, sizeof (png_signature)))
+      return "Not a PNG";
+   if (memcmp (data + sizeof (png_signature) + 4, "IHDR", 4))
+      return "Missing IHDR";
+   if (ntohl (*(uint32_t *) (data + sizeof (png_signature))) != 13)
+      return "Bad IHDR len";
+   if (w)
+      *w = ntohl (*(uint32_t *) (data + sizeof (png_signature) + 8));
+   if (h)
+      *h = ntohl (*(uint32_t *) (data + sizeof (png_signature) + 8 + 4));
+   return NULL;
 }

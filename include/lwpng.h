@@ -25,3 +25,6 @@ const char *lwpng_data(lwpng_t*,size_t len,uint8_t *data);
 
 // End processing, frees the control structure, returns NULL if OK, else error string
 const char *lwpng_end(lwpng_t**);
+
+// Get info from memory buffer with png in it, at least 29 bytes of data needed
+const char*lwpng_get_info(uint32_t len,uint8_t *data,uint32_t *w,uint32_t *h);
