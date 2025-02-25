@@ -1,20 +1,7 @@
 // PNG expander
 
-#ifdef	CONFIG_IDF_TARGET
-#include <miniz.h>
-#ifdef	MINIZ_NO_ZLIB_APIS
-#error	Comment out the #define MINIZ_NO_ZLIB_APIS
-#endif
-#ifdef	MINIZ_NO_ZLIB_COMPATIBLE_NAMES
-#error	Comment out the #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
-#endif
-#define	alloc_int	size_t
-#else
-// Non ESP
 #include <stdint.h>
 #include <zlib.h>
-#define	alloc_int	uInt
-#endif
 
 typedef	struct	lwpng_s	lwpng_t; // This is the internal (malloc'd) structure for png decoding
 
