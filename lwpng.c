@@ -124,10 +124,10 @@ lwpng_free (void *opaque, void *address)
 static inline uint8_t
 paeth (uint8_t a, uint8_t b, uint8_t c)
 {
-   uint16_t p = a + b + c;
-   uint16_t pa = (p > a ? p - a : a - p);
-   uint16_t pb = (p > b ? p - b : b - p);
-   uint16_t pc = (p > c ? p - c : c - p);
+   int16_t p = a + b - c;
+   int16_t pa = (p > a ? p - a : a - p);
+   int16_t pb = (p > b ? p - b : b - p);
+   int16_t pc = (p > c ? p - c : c - p);
    if (pa <= pb && pa <= pc)
       return a;
    if (pb <= pc)
@@ -255,7 +255,7 @@ scan_byte (lwpng_t * p, uint8_t b)
       return NULL;
    }
    uint8_t l = (p->ppos ? p->pixel[p->bpos] : 0);
-   uint8_t ul = (p->ppos > 0 ? p->scan[(uint64_t) (p->ppos - 1) * p->bpp + p->bpos] : 0);
+   uint8_t ul = (p->ppos ? p->scan[(uint64_t) (p->ppos - 1) * p->bpp + p->bpos] : 0);
    uint8_t u = p->scan[(uint64_t) p->ppos * p->bpp + p->bpos];
    switch (p->filter)
    {
@@ -277,7 +277,7 @@ scan_byte (lwpng_t * p, uint8_t b)
 #ifdef	DEBUG
    printf ("%02X", b);
 #endif
-   if (p->ppos > 0)
+   if (p->ppos)
       p->scan[(uint64_t) (p->ppos - 1) * p->bpp + p->bpos] = p->pixel[p->bpos];
    p->pixel[p->bpos] = b;
    p->bpos++;
