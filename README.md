@@ -12,7 +12,7 @@ This is fully functional, including all PNG formats and interlacing, grey/colour
 
 ### Memory usage
 
-The main memory usage is from *zlib*, which typically needs 32kB back buffer and more for Huffman tables. Tests suggest around 50kB total. The PNG decoder uses memory for a scan line (so width pixels, which be as much as 8 bytes each), and for the `PLTE` and `tRNS` chunks. There is a tradeoff, when `PLTE` is used the scan line pixels are max 1 byte per pixel, not 8. When `tRNS` is used the scan lines do not have *alpha* so max 6 bytes per pixel.
+The main memory usage is from *zlib*, which typically needs 32kB back buffer and more for Huffman tables. Tests suggest around 50kB total. The PNG decoder uses memory for a scan line (so width pixels, which may be as much as 8 bytes each), and for the `PLTE` and `tRNS` chunks. There is a tradeoff, when `PLTE` is used the scan line pixels are max 1 byte per pixel, not 8. When `tRNS` is used the scan lines do not have *alpha* so max 6 bytes per pixel.
 
 If memory is short it is worth saving PNG using 1 bit indexed for e-paper usage anyway, as this will reduce scan line storage as well as size of PNG if stored. But any PNG format is accepted.
 
