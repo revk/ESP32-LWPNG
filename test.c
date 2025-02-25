@@ -22,7 +22,7 @@ start (void *opaque, uint32_t w, uint32_t h, uint8_t hasalpha)
 const char *
 pixel (void *opaque, uint32_t x, uint32_t y, uint16_t r, uint16_t g, uint16_t b, uint16_t a)
 {
-   warnx ("X=%u Y=%u R=%u G=%u B=%u A=%u", x, y, r, g, b, a);
+   warnx ("X=%u Y=%u R=%f G=%f B=%f A=%f", x, y, (float)r/65535, (float)g/65535, (float)b/65535, (float)a/65535);
    return NULL;
 }
 

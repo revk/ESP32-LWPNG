@@ -138,7 +138,7 @@ paeth (uint8_t a, uint8_t b, uint8_t c)
 }
 
 static void
-report (lwpng_t * p)
+pixels (lwpng_t * p)
 {
    if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ 2) & 3))
    {                            // Multiple pixel per byte
@@ -146,7 +146,7 @@ report (lwpng_t * p)
       uint8_t step = adam7xstep[p->adam7];
       uint8_t steps = 8 / p->IHDR.depth;
       uint32_t x = p->x;
-      while (steps-- && !p->error)
+      while (steps-- && !p->error && p->x < p->IHDR.width)
       {
          uint16_t r = 0,
             g = 0,
@@ -156,8 +156,12 @@ report (lwpng_t * p)
          if (p->IHDR.colour & 1)
          {                      // Palette
             if (!p->PLTE || v > p->PLTE_len / 3)
-               a = 0;
-            else
+            {
+               a = 0;           // Too big, this is an error
+#ifdef	CONFIG_LWPNG_CHECKS
+               p->error = "Invalid palette entry";
+#endif
+            } else
             {
                r = p->PLTE[v * 3 + 0] * 257;
                g = p->PLTE[v * 3 + 1] * 257;
@@ -241,7 +245,14 @@ scan_byte (lwpng_t * p, uint8_t b)
       p->filter = b;
       p->ppos = 0;
 #ifdef	CONFIG_LWPNG_DEBUG
-      printf ("%d/%d:", b, p->adam7);
+      if (p->adam7)
+         printf ("A%u", p->adam7);
+      printf ("Y%u", p->y);
+      if (p->x)
+         printf ("X%u", p->x);
+      if (p->filter)
+         printf ("F%u", p->filter);
+      printf (":");
 #endif
       return NULL;
    }
@@ -274,7 +285,7 @@ scan_byte (lwpng_t * p, uint8_t b)
    p->bpos++;
    if (p->bpos == p->bpp)
    {                            // End of pixel
-      report (p);
+      pixels (p);
       printf (" ");
       p->bpos = 0;
       uint8_t step = adam7xstep[p->adam7];
@@ -286,20 +297,24 @@ scan_byte (lwpng_t * p, uint8_t b)
       if (p->x >= p->IHDR.width)
       {                         // End of line
          memcpy (p->scan + (uint64_t) (p->ppos - 1) * p->bpp, p->pixel, p->bpp);        // Last pixel stored
+         // Next line
          p->y += adam7ystep[p->adam7];
-         if (p->adam7 && p->y >= p->IHDR.height)
-         {                      // Start of new scan
+         p->x = adam7x[p->adam7];
+         if (p->adam7 && (p->x >= p->IHDR.width || p->y >= p->IHDR.height))
+         {                      // End of adam7 scan
             uint64_t bytes = 0;
             if (((p->IHDR.colour ^ 2) & 3))
                bytes = ((uint64_t) p->IHDR.width * 8 + 7) / p->IHDR.depth;
             else
                bytes = (uint64_t) p->IHDR.width * p->bpp;
-            memset (p->scan, 0, bytes);
-            p->adam7++;
-            p->x = adam7x[p->adam7];
-            p->y = adam7y[p->adam7];
-         } else
-            p->x = 0;
+            memset (p->scan, 0, bytes); // Clean for new scan
+            while (p->adam7 && (p->x >= p->IHDR.width || p->y >= p->IHDR.height))
+            {                   // Skip non present scan lines
+               p->adam7++;
+               p->x = adam7x[p->adam7];
+               p->y = adam7y[p->adam7];
+            }
+         }
          p->filter = 7;         // Flag start of line
 #ifdef	CONFIG_LWPNG_DEBUG
          printf ("\n");
@@ -315,9 +330,9 @@ idat_byte (lwpng_t * p, uint8_t b)
    p->mz.next_in = &b;
    p->mz.avail_in = 1;
    p->mz.total_in = 0;
-   while (!p->mz.total_in)
+   do
    {
-      uint8_t out[32] = { 0 };
+      uint8_t out[16];
       p->mz.next_out = out;
       p->mz.avail_out = sizeof (out);
       p->mz.total_out = 0;
@@ -327,6 +342,7 @@ idat_byte (lwpng_t * p, uint8_t b)
       for (int i = 0; i < p->mz.total_out; i++)
          scan_byte (p, out[i]);
    }
+   while (p->mz.avail_in || !p->mz.avail_out);
    return NULL;
 }
 
@@ -460,10 +476,18 @@ png_byte (lwpng_t * p, uint8_t b)
                   return "PLTE too late";
                if (p->PLTE)
                   return "Duplicate PLTE";
+               if (p->remaining < 3 || p->remaining > 256 * 3 || p->remaining % 3)
+                  return "Bad PLTE length";
+               if (!(p->IHDR.colour & 2))
+                  return "PLTE not expected";
 #endif
-               p->state = STATE_PLTE;
-               if (!(p->PLTE = p->mz.zalloc (p->mz.opaque, 1, p->remaining)))
-                  return "Out of memory";
+               if (p->IHDR.colour & 1)
+               {
+                  p->state = STATE_PLTE;
+                  if (!(p->PLTE = p->mz.zalloc (p->mz.opaque, 1, p->remaining)))
+                     return "Out of memory";
+               } else
+                  p->state = STATE_DISCARD;     // Pallette not used
             } else if (!memcmp (p->chunk.type, "tRNS", 4))
             {
 #ifdef	CONFIG_LWPNG_CHECKS
@@ -471,6 +495,11 @@ png_byte (lwpng_t * p, uint8_t b)
                   return "tRNS too late";
                if (p->tRNS)
                   return "Duplicate tRNS";
+               if (!p->remaining || p->remaining > 256 || (!p->IHDR.colour && p->remaining != 2) || (p->IHDR.colour == 2
+                                                                                                     && p->remaining != 6))
+                  return "Bad tRNS length";
+               if (p->IHDR.colour & 4)
+                  return "tRNS not expected";
 #endif
                p->state = STATE_tRNS;
                if (!(p->tRNS = p->mz.zalloc (p->mz.opaque, 1, p->remaining)))
