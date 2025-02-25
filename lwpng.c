@@ -110,7 +110,7 @@ struct lwpng_s
 };
 
 static void *
-lwpng_alloc (void *opaque, alloc_int items, alloc_int size)
+lwpng_alloc (void *opaque, uInt items, uInt size)
 {
    return malloc (items * size);
 }
