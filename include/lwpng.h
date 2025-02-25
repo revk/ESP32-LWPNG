@@ -2,6 +2,12 @@
 
 #ifdef	CONFIG_IDF_TARGET
 #include <miniz.h>
+#ifdef	MINIZ_NO_ZLIB_APIS
+#error	Comment out the #define MINIZ_NO_ZLIB_APIS
+#endif
+#ifdef	MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+#error	Comment out the #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+#endif
 #define	alloc_int	size_t
 #else
 // Non ESP
