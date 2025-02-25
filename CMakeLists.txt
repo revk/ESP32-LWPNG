@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5...3.25)
 
 set(SOURCES "lwpng.c")
-set(RECS)
+set(RECS "zlib")
 
 idf_component_register(
 			SRCS ${SOURCES}
