@@ -122,12 +122,12 @@ lwpng_free (void *opaque, void *address)
 }
 
 static inline uint8_t
-paeth (uint8_t a, uint8_t b, uint8_t c)
+paeth (int a, int b, int c)
 {
-   int16_t p = a + b - c;
-   int16_t pa = (p > a ? p - a : a - p);
-   int16_t pb = (p > b ? p - b : b - p);
-   int16_t pc = (p > c ? p - c : c - p);
+   int p = a + b - c;
+   int pa = (p > a ? p - a : a - p);
+   int pb = (p > b ? p - b : b - p);
+   int pc = (p > c ? p - c : c - p);
    if (pa <= pb && pa <= pc)
       return a;
    if (pb <= pc)
@@ -268,7 +268,7 @@ scan_byte (lwpng_t * p, uint8_t b)
       b += u;
       break;
    case 3:                     // Average
-      b += ((uint16_t) u + l) / 2;
+      b += ((int) u + (int) l) / 2;
       break;
    case 4:                     // Paeth
       b += paeth (l, u, ul);
