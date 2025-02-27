@@ -138,7 +138,7 @@ paeth (int a, int b, int c)
 static void
 pixels (lwpng_t * p)
 {
-   if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
+   if (p->bpp == 1 && p->IHDR.depth <= 8 && ((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
    {                            // Multiple pixel per byte
       uint8_t B = p->pixel[0];
       uint8_t step = adam7xstep[p->adam7];
@@ -463,6 +463,20 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
                      bytes = (uint64_t) p->IHDR.width * p->bpp;
 #ifdef	DEBUG
                   printf ("Bytes %lu BPP %u\n", bytes, p->bpp);
+                  if (p->PLTE)
+                  {
+                     printf ("PLTE:");
+                     for (int i = 0; i < p->PLTE_len; i += 3)
+                        printf (" %02X%02X%02X", p->PLTE[i], p->PLTE[i + 1], p->PLTE[i + 2]);
+                     printf ("\n");
+                  }
+                  if (p->tRNS)
+                  {
+                     printf ("tRNS:");
+                     for (int i = 0; i < p->tRNS_len; i++)
+                        printf (" %02X", p->tRNS[i]);
+                     printf ("\n");
+                  }
 #endif
                   if (!(p->scan = p->z.zalloc (p->z.opaque, 1, bytes)))
                      return "Out of memory";
