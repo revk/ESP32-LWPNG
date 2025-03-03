@@ -587,7 +587,8 @@ png_bytes (lwpng_decode_t * p, uint32_t len, uint8_t * in)
 
 // Allocate a new PNG decode, alloc/free can be NULL for system defaults
 lwpng_decode_t *
-lwpng_decode (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree, void *allocopaque)
+lwpng_decode (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree,
+              void *allocopaque)
 {
    if (!zalloc)
       zalloc = lwpng_alloc;
