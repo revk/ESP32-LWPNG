@@ -61,6 +61,7 @@ enum
    STATE_IDAT,                  // Loading IDAT
    STATE_DISCARD,               // Discarding chunk
 };
+#endif
 
 struct lwpng_s
 {
