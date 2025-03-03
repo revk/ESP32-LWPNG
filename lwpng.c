@@ -43,6 +43,18 @@ static const uint8_t png_signature[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
 #define	COLOUR_RGB	2
 #define	COLOUR_ALPHA	4
 
+static void *
+lwpng_alloc (void *opaque, uInt items, uInt size)
+{
+   return malloc (items * size);
+}
+
+static void
+lwpng_free (void *opaque, void *address)
+{
+   free (address);
+}
+
 #ifdef	CONFIG_LWPNG_DECODE
 
 static const uint8_t adam7x[] = { 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
@@ -61,21 +73,14 @@ enum
    STATE_IDAT,                  // Loading IDAT
    STATE_DISCARD,               // Discarding chunk
 };
-#endif
 
-struct lwpng_s
+struct lwpng_decode_s
 {
    void *opaque;                // Used for callback
    const char *error;           // Set if error state
    z_stream z;                  // Inflate
-#ifdef	CONFIG_LWPNG_DECODE
    lwpng_cb_start_t *cb_start;  // Call back start
    lwpng_cb_pixel_t *cb_pixel;  // Call back pixel
-#endif
-#ifdef	CONFIG_LWPNG_ENCODE
-
-#endif
-#ifdef	CONFIG_LWPNG_DECODE
    uint32_t remaining;          // Bytes remaining in current state
    uint16_t PLTE_len;           // Length of PLTE (bytes)
    uint16_t tRNS_len;           // Length of tRNS (bytes)
@@ -115,22 +120,7 @@ struct lwpng_s
 #endif
    uint8_t data:1;              // We have had IDAT
    uint8_t end:1;               // We have cleanly got to the end - retain even if CHECKS not set as file could be cut short
-#endif
 };
-
-#ifdef	CONFIG_LWPNG_DECODE
-
-static void *
-lwpng_alloc (void *opaque, uInt items, uInt size)
-{
-   return malloc (items * size);
-}
-
-static void
-lwpng_free (void *opaque, void *address)
-{
-   free (address);
-}
 
 static inline uint8_t
 paeth (int a, int b, int c)
@@ -147,7 +137,7 @@ paeth (int a, int b, int c)
 }
 
 static void
-pixels (lwpng_t * p)
+pixels (lwpng_decode_t * p)
 {
    if (p->bpp == 1 && p->IHDR.depth <= 8 && ((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
    {                            // Multiple pixel per byte
@@ -245,7 +235,7 @@ pixels (lwpng_t * p)
 }
 
 static const char *
-scan_byte (lwpng_t * p, uint8_t b)
+scan_byte (lwpng_decode_t * p, uint8_t b)
 {                               // Process inflated IDAT byte
    if (p->filter == 7)
    {                            // Start of scan line
@@ -336,7 +326,7 @@ scan_byte (lwpng_t * p, uint8_t b)
 }
 
 static const char *
-idat_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
+idat_bytes (lwpng_decode_t * p, uint32_t len, uint8_t * in)
 {                               // process bytes from IDAT, compressed
    p->z.next_in = in;
    p->z.avail_in = len;
@@ -367,7 +357,7 @@ idat_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 }
 
 static const char *
-png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
+png_bytes (lwpng_decode_t * p, uint32_t len, uint8_t * in)
 {                               // process byte from PNG file - up to p->remaining only
 #ifdef	CONFIG_LWPNG_CHECKS
    if (p->state != STATE_CRC && p->end)
@@ -593,17 +583,17 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 }
 
 // Calls to decode PNG
-// Note, once an error happens it latches and all further lwpng_data calls are ignored, as such you can just check error on lwpng_end
+// Note, once an error happens it latches and all further lwpng_data calls are ignored, as such you can just check error on lwpng_decoded
 
 // Allocate a new PNG decode, alloc/free can be NULL for system defaults
-lwpng_t *
+lwpng_decode_t *
 lwpng_decode (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree, void *allocopaque)
 {
    if (!zalloc)
       zalloc = lwpng_alloc;
    if (!zfree)
       zfree = lwpng_free;
-   lwpng_t *p = zalloc (allocopaque, 1, sizeof (*p));
+   lwpng_decode_t *p = zalloc (allocopaque, 1, sizeof (*p));
    if (!p)
       return p;
    memset (p, 0, sizeof (*p));
@@ -621,7 +611,7 @@ lwpng_decode (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, 
 
 // Process data sequentially as data received for PNG file, returns NULL if OK, else error string
 const char *
-lwpng_data (lwpng_t * p, size_t len, uint8_t * data)
+lwpng_data (lwpng_decode_t * p, size_t len, uint8_t * data)
 {
    if (!p)
       return "No control structure";
@@ -639,11 +629,11 @@ lwpng_data (lwpng_t * p, size_t len, uint8_t * data)
 
 // End processing, frees the control structure, returns NULL if OK, else error string
 const char *
-lwpng_end (lwpng_t ** pp)
+lwpng_decoded (lwpng_decode_t ** pp)
 {
    if (!pp || !*pp)
       return "No control structure";
-   lwpng_t *p = *pp;
+   lwpng_decode_t *p = *pp;
    *pp = NULL;
    const char *e = p->error;
    if (!e && !p->end)
