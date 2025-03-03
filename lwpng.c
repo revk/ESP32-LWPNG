@@ -43,7 +43,7 @@ static const uint8_t png_signature[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
 #define	COLOUR_RGB	2
 #define	COLOUR_ALPHA	4
 
-#ifdef	CONFIG LWPNG_DECODE
+#ifdef	CONFIG_LWPNG_DECODE
 
 static const uint8_t adam7x[] = { 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
 static const uint8_t adam7xstep[] = { 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
@@ -67,14 +67,14 @@ struct lwpng_s
    void *opaque;                // Used for callback
    const char *error;           // Set if error state
    z_stream z;                  // Inflate
-#ifdef	CONFIG LWPNG_DECODE
+#ifdef	CONFIG_LWPNG_DECODE
    lwpng_cb_start_t *cb_start;  // Call back start
    lwpng_cb_pixel_t *cb_pixel;  // Call back pixel
 #endif
-#ifdef	CONFIG LWPNG_ENCODE
+#ifdef	CONFIG_LWPNG_ENCODE
 
 #endif
-#ifdef	CONFIG LWPNG_DECODE
+#ifdef	CONFIG_LWPNG_DECODE
    uint32_t remaining;          // Bytes remaining in current state
    uint16_t PLTE_len;           // Length of PLTE (bytes)
    uint16_t tRNS_len;           // Length of tRNS (bytes)
@@ -117,7 +117,7 @@ struct lwpng_s
 #endif
 };
 
-#ifdefwCONFIG LWPNG_DECODE
+#ifdef	CONFIG_LWPNG_DECODE
 
 static void *
 lwpng_alloc (void *opaque, uInt items, uInt size)
