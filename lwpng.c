@@ -39,14 +39,16 @@ static const uint32_t crc_table[] = {
 
 static const uint8_t png_signature[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
 
+#define	COLOUR_PALETTE	1
+#define	COLOUR_RGB	2
+#define	COLOUR_ALPHA	4
+
+#ifdef	CONFIG LWPNG_DECODE
+
 static const uint8_t adam7x[] = { 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
 static const uint8_t adam7xstep[] = { 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
 static const uint8_t adam7y[] = { 0, 0, 0, 4, 0, 2, 0, 1 };     // Y start
 static const uint8_t adam7ystep[] = { 1, 8, 8, 8, 4, 4, 2, 2 }; // Y step
-
-#define	COLOUR_PALETTE	1
-#define	COLOUR_RGB	2
-#define	COLOUR_ALPHA	4
 
 enum
 {
@@ -60,14 +62,19 @@ enum
    STATE_DISCARD,               // Discarding chunk
 };
 
-
 struct lwpng_s
 {
    void *opaque;                // Used for callback
    const char *error;           // Set if error state
    z_stream z;                  // Inflate
+#ifdef	CONFIG LWPNG_DECODE
    lwpng_cb_start_t *cb_start;  // Call back start
    lwpng_cb_pixel_t *cb_pixel;  // Call back pixel
+#endif
+#ifdef	CONFIG LWPNG_ENCODE
+
+#endif
+#ifdef	CONFIG LWPNG_DECODE
    uint32_t remaining;          // Bytes remaining in current state
    uint16_t PLTE_len;           // Length of PLTE (bytes)
    uint16_t tRNS_len;           // Length of tRNS (bytes)
@@ -107,7 +114,10 @@ struct lwpng_s
 #endif
    uint8_t data:1;              // We have had IDAT
    uint8_t end:1;               // We have cleanly got to the end - retain even if CHECKS not set as file could be cut short
+#endif
 };
+
+#ifdefwCONFIG LWPNG_DECODE
 
 static void *
 lwpng_alloc (void *opaque, uInt items, uInt size)
@@ -586,7 +596,7 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 
 // Allocate a new PNG decode, alloc/free can be NULL for system defaults
 lwpng_t *
-lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree, void *allocopaque)
+lwpng_decode (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree, void *allocopaque)
 {
    if (!zalloc)
       zalloc = lwpng_alloc;
@@ -669,3 +679,8 @@ lwpng_get_info (uint32_t len, uint8_t * data, uint32_t * w, uint32_t * h)
       *h = ntohl (*(uint32_t *) (data + sizeof (png_signature) + 8 + 4));
    return NULL;
 }
+
+#endif
+
+#ifdef	CONFIG_LWPNG_ENCODE
+#endif

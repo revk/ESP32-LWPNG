@@ -1,5 +1,17 @@
 menu "LWPNG"
 
+	config LWPNG_DECODE
+        bool "Decode PNGs"
+        default y
+        help
+		Functions to decode PNGs
+
+	config LWPNG_ENCODE
+        bool "Encode PNGs"
+        default n
+        help
+		Functions to encode PNGs
+
 	config LWPNG_CHECKS
         bool "File validity checks"
         default n
