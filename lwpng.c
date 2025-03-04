@@ -762,7 +762,7 @@ lwpng_encode (uint32_t w, uint32_t h, uint8_t depth, alloc_func zalloc, free_fun
             uint8_t compress;
             uint8_t filter;
             uint8_t interlace;
-         } IHDR = { htonl (w), htonl (h), depth };
+         } IHDR = { htonl (w), htonl (h), depth, 0, 0, 0, 0 };
          if (depth == 1)
             IHDR.colour = (COLOUR_PALETTE | COLOUR_RGB);        // 1 bit is palette black white
          // TODO may do trans/black/red/white 2 bit some time
