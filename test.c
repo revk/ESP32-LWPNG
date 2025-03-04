@@ -33,8 +33,8 @@ pixel (void *opaque, uint32_t x, uint32_t y, uint16_t r, uint16_t g, uint16_t b,
 int
 main (int argc, const char *argv[])
 {
-   if (argc != 2)
-      errx (1, "filename");
+   if (argc == 2)
+   { // Decode
    FILE *f = fopen (argv[1], "r");
    if (!f)
       err (1, "Cannot open %s", argv[1]);
@@ -51,5 +51,11 @@ main (int argc, const char *argv[])
    fclose (f);
    if (e)
       errx (1, "Failed %s", e);
+   return 0;
+   }
+
+   // Encode test
+
+
    return 0;
 }
