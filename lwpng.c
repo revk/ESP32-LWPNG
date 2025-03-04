@@ -732,7 +732,7 @@ lwpng_encode (uint32_t w, uint32_t h, uint8_t depth, alloc_func zalloc, free_fun
    p->z.zalloc = zalloc;
    p->z.zfree = zfree;
    p->z.opaque = allocopaque;
-   if (deflateInit (&p->z, 9) != Z_OK)
+   if (deflateInit (&p->z, 5) != Z_OK)
       p->error = "Deflate init error";
 #ifdef	CONFIG_LWPNG_CHECKS
    if (!p->error && depth != 1 && depth != 2 && depth != 4 && depth != 8 && depth != 16)
