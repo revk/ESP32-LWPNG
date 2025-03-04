@@ -28,8 +28,6 @@ pixel (void *opaque, uint32_t x, uint32_t y, uint16_t r, uint16_t g, uint16_t b,
    return NULL;
 }
 
-// TODO malloc stats
-
 int
 main (int argc, const char *argv[])
 {
