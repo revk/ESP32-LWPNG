@@ -39,7 +39,7 @@ main (int argc, const char *argv[])
    if (!f)
       err (1, "Cannot open %s", argv[1]);
 
-   lwpng_t *p = lwpng_init (NULL, &start, &pixel, NULL, NULL, NULL);
+   lwpng_decode_t *p = lwpng_decode (NULL, &start, &pixel, NULL, NULL, NULL);
    if (!p)
       errx (1, "Failed to init");
 
@@ -47,7 +47,7 @@ main (int argc, const char *argv[])
    size_t l;
    while ((l = fread (buf, 1, sizeof (buf), f)) > 0)
       lwpng_data (p, l, buf);
-   const char *e = lwpng_end (&p);
+   const char *e = lwpng_decoded (&p);
    fclose (f);
    if (e)
       errx (1, "Failed %s", e);
