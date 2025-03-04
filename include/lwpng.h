@@ -33,7 +33,7 @@ const char*lwpng_get_info(uint32_t len,uint8_t *data,uint32_t *w,uint32_t *h);
 
 #endif
 
-#ifdef	CONFIGF_LWPNG_ENCODE
+#ifdef	CONFIG_LWPNG_ENCODE
 
 // Encode is to memory...
 
@@ -43,9 +43,9 @@ typedef	struct	lwpng_encode_s	lwpng_encode_t; // This is the internal (malloc'd)
 lwpng_encode_t *lwpng_encode_1bit(uint32_t w,uint32_t h,alloc_func,free_func,void *allocopaque);
 
 // Write scan line - raw data as per PNG
-const char *lwpng_encode_scanline(lwpng_t*,uint8_t *data);
+const char *lwpng_encode_scanline(lwpng_encode_t*,uint8_t *data);
 
 // Get final PNG, and free control structure
-const char *lwpng_encoded(lwpng_encode_t*,size_t *len,uint8_t **data);
+const char *lwpng_encoded(lwpng_encode_t**,size_t *len,uint8_t **data);
 
 #endif
