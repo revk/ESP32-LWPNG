@@ -16,7 +16,7 @@ This is fully functional, including all PNG formats and interlacing, grey/colour
 
 ### Memory usage
 
-The main memory usage is from *zlib*, which typically needs 32kB back buffer and more for Huffman tables. Tests suggest around 50kB total. The PNG decoder uses memory for a scan line (so width pixels, which be as much as 8 bytes each), and for the `PLTE` and `tRNS` chunks. There is a tradeoff, when `PLTE` is used the scan line pixels are max 1 byte per pixel, not 8. When `tRNS` is used the scan lines do not have *alpha* so max 6 bytes per pixel.
+The main memory usage is from *zlib*, which typically needs 32kB back buffer and more for Huffman tables. Tests suggest around 50kB total. The PNG decoder uses memory for a scan line (so width pixels, which may be as much as 8 bytes each), and for the `PLTE` and `tRNS` chunks. There is a tradeoff, when `PLTE` is used the scan line pixels are max 1 byte per pixel, not 8. When `tRNS` is used the scan lines do not have *alpha* so max 6 bytes per pixel.
 
 If memory is short it is worth saving PNG using 1 bit indexed for e-paper usage anyway, as this will reduce scan line storage as well as size of PNG if stored. But any PNG format is accepted.
 
@@ -41,13 +41,13 @@ This allocates a control structure, returning NULL if failed. The control struct
 |`pixel`|The callback for each pixel, optional (can be NULL)|
 |`alloc`|The function for memory allocation, NULL for system default `malloc` (see *zlib*)|
 |`free`|The function for memory free, NULL for system default `free` (see *zlib*)|
-|`allocopaque`|Passed to *alloc* and *free* functions|
+|`allocopaque`|Passed to *alloc* and *free* functions, so can be NULL|
 
 ## Feeding data
 
 `const char *lwpng_data(lwpng_decode_t*,size_t len,uint8_t *data)`
 
-Call this repeatedly, or all in one go if you prefer, with bytes from the PNG. Returns NULL if OK, else an error string. Can be used one byte at a time if you wish, but blocks are likely to be more effectient.
+Call this repeatedly, or all in one go if you prefer, with bytes from the PNG in order. Returns NULL if OK, else an error string. Can be used one byte at a time if you wish, but blocks are likely to be more efficient.
 
 Note that once an error happens, all further calls do nothing and return the latched error, so you can leave checking error until the end, and check it at `lwpng_end` call.
 

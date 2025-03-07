@@ -6,7 +6,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 
-#ifdef	CONFIG_LWPNG_CHECKS
+#if	defined(CONFIG_LWPNG_CHECKS) || defined(CONFIG_LWPNG_ENCODE)
 static const uint32_t crc_table[] = {
    0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3, 0x0EDB8832, 0x79DCB8A4,
    0xE0D5E91E, 0x97D2D988, 0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91, 0x1DB71064, 0x6AB020F2, 0xF3B97148, 0x84BE41DE,
@@ -39,14 +39,28 @@ static const uint32_t crc_table[] = {
 
 static const uint8_t png_signature[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
 
+#define	COLOUR_PALETTE	1
+#define	COLOUR_RGB	2
+#define	COLOUR_ALPHA	4
+
+static void *
+lwpng_alloc (void *opaque, uInt items, uInt size)
+{
+   return malloc (items * size);
+}
+
+static void
+lwpng_free (void *opaque, void *address)
+{
+   free (address);
+}
+
+#ifdef	CONFIG_LWPNG_DECODE
+
 static const uint8_t adam7x[] = { 0, 0, 4, 0, 2, 0, 1, 0 };     // X start
 static const uint8_t adam7xstep[] = { 1, 8, 8, 4, 4, 2, 2, 1 }; // X step
 static const uint8_t adam7y[] = { 0, 0, 0, 4, 0, 2, 0, 1 };     // Y start
 static const uint8_t adam7ystep[] = { 1, 8, 8, 8, 4, 4, 2, 2 }; // Y step
-
-#define	COLOUR_PALETTE	1
-#define	COLOUR_RGB	2
-#define	COLOUR_ALPHA	4
 
 enum
 {
@@ -60,8 +74,7 @@ enum
    STATE_DISCARD,               // Discarding chunk
 };
 
-
-struct lwpng_s
+struct lwpng_decode_s
 {
    void *opaque;                // Used for callback
    const char *error;           // Set if error state
@@ -109,25 +122,13 @@ struct lwpng_s
    uint8_t end:1;               // We have cleanly got to the end - retain even if CHECKS not set as file could be cut short
 };
 
-static void *
-lwpng_alloc (void *opaque, uInt items, uInt size)
-{
-   return malloc (items * size);
-}
-
-static void
-lwpng_free (void *opaque, void *address)
-{
-   free (address);
-}
-
 static inline uint8_t
-paeth (uint8_t a, uint8_t b, uint8_t c)
+paeth (int a, int b, int c)
 {
-   int16_t p = a + b - c;
-   int16_t pa = (p > a ? p - a : a - p);
-   int16_t pb = (p > b ? p - b : b - p);
-   int16_t pc = (p > c ? p - c : c - p);
+   int p = a + b - c;
+   int pa = (p > a ? p - a : a - p);
+   int pb = (p > b ? p - b : b - p);
+   int pc = (p > c ? p - c : c - p);
    if (pa <= pb && pa <= pc)
       return a;
    if (pb <= pc)
@@ -136,9 +137,9 @@ paeth (uint8_t a, uint8_t b, uint8_t c)
 }
 
 static void
-pixels (lwpng_t * p)
+pixels (lwpng_decode_t * p)
 {
-   if (p->bpp == 1 && p->IHDR.depth < 8 && ((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
+   if (p->bpp == 1 && p->IHDR.depth <= 8 && ((p->IHDR.colour ^ COLOUR_RGB) & (COLOUR_PALETTE | COLOUR_RGB)))
    {                            // Multiple pixel per byte
       uint8_t B = p->pixel[0];
       uint8_t step = adam7xstep[p->adam7];
@@ -234,7 +235,7 @@ pixels (lwpng_t * p)
 }
 
 static const char *
-scan_byte (lwpng_t * p, uint8_t b)
+scan_byte (lwpng_decode_t * p, uint8_t b)
 {                               // Process inflated IDAT byte
    if (p->filter == 7)
    {                            // Start of scan line
@@ -268,7 +269,7 @@ scan_byte (lwpng_t * p, uint8_t b)
       b += u;
       break;
    case 3:                     // Average
-      b += ((uint16_t) u + l) / 2;
+      b += ((int) u + (int) l) / 2;
       break;
    case 4:                     // Paeth
       b += paeth (l, u, ul);
@@ -325,7 +326,7 @@ scan_byte (lwpng_t * p, uint8_t b)
 }
 
 static const char *
-idat_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
+idat_unpack (lwpng_decode_t * p, uint32_t len, uint8_t * in)
 {                               // process bytes from IDAT, compressed
    p->z.next_in = in;
    p->z.avail_in = len;
@@ -356,7 +357,7 @@ idat_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 }
 
 static const char *
-png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
+png_bytes (lwpng_decode_t * p, uint32_t len, uint8_t * in)
 {                               // process byte from PNG file - up to p->remaining only
 #ifdef	CONFIG_LWPNG_CHECKS
    if (p->state != STATE_CRC && p->end)
@@ -394,7 +395,7 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
       p->tRNS_len += len;
       break;
    case STATE_IDAT:
-      p->error = idat_bytes (p, len, in);
+      p->error = idat_unpack (p, len, in);
       break;
    case STATE_DISCARD:
       break;
@@ -463,6 +464,20 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
                      bytes = (uint64_t) p->IHDR.width * p->bpp;
 #ifdef	DEBUG
                   printf ("Bytes %lu BPP %u\n", bytes, p->bpp);
+                  if (p->PLTE)
+                  {
+                     printf ("PLTE:");
+                     for (int i = 0; i < p->PLTE_len; i += 3)
+                        printf (" %02X%02X%02X", p->PLTE[i], p->PLTE[i + 1], p->PLTE[i + 2]);
+                     printf ("\n");
+                  }
+                  if (p->tRNS)
+                  {
+                     printf ("tRNS:");
+                     for (int i = 0; i < p->tRNS_len; i++)
+                        printf (" %02X", p->tRNS[i]);
+                     printf ("\n");
+                  }
 #endif
                   if (!(p->scan = p->z.zalloc (p->z.opaque, 1, bytes)))
                      return "Out of memory";
@@ -568,17 +583,18 @@ png_bytes (lwpng_t * p, uint32_t len, uint8_t * in)
 }
 
 // Calls to decode PNG
-// Note, once an error happens it latches and all further lwpng_data calls are ignored, as such you can just check error on lwpng_end
+// Note, once an error happens it latches and all further lwpng_data calls are ignored, as such you can just check error on lwpng_decoded
 
 // Allocate a new PNG decode, alloc/free can be NULL for system defaults
-lwpng_t *
-lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree, void *allocopaque)
+lwpng_decode_t *
+lwpng_decode (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, alloc_func zalloc, free_func zfree,
+              void *allocopaque)
 {
    if (!zalloc)
       zalloc = lwpng_alloc;
    if (!zfree)
       zfree = lwpng_free;
-   lwpng_t *p = zalloc (allocopaque, 1, sizeof (*p));
+   lwpng_decode_t *p = zalloc (allocopaque, 1, sizeof (*p));
    if (!p)
       return p;
    memset (p, 0, sizeof (*p));
@@ -596,7 +612,7 @@ lwpng_init (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, al
 
 // Process data sequentially as data received for PNG file, returns NULL if OK, else error string
 const char *
-lwpng_data (lwpng_t * p, size_t len, uint8_t * data)
+lwpng_data (lwpng_decode_t * p, size_t len, uint8_t * data)
 {
    if (!p)
       return "No control structure";
@@ -614,11 +630,11 @@ lwpng_data (lwpng_t * p, size_t len, uint8_t * data)
 
 // End processing, frees the control structure, returns NULL if OK, else error string
 const char *
-lwpng_end (lwpng_t ** pp)
+lwpng_decoded (lwpng_decode_t ** pp)
 {
    if (!pp || !*pp)
       return "No control structure";
-   lwpng_t *p = *pp;
+   lwpng_decode_t *p = *pp;
    *pp = NULL;
    const char *e = p->error;
    if (!e && !p->end)
@@ -655,3 +671,207 @@ lwpng_get_info (uint32_t len, uint8_t * data, uint32_t * w, uint32_t * h)
       *h = ntohl (*(uint32_t *) (data + sizeof (png_signature) + 8 + 4));
    return NULL;
 }
+
+#endif
+
+#ifdef	CONFIG_LWPNG_ENCODE
+struct lwpng_encode_s
+{
+   const char *error;
+   z_stream z;                  // Inflate
+   uint32_t w,                  // Width bytes
+     h;                         // Height scan lines counts down
+   size_t len;
+   uint8_t *data;
+   FILE *o;
+   uint32_t IDAT;               // Offset for IDAT
+};
+
+static const char *
+idat_pack (lwpng_encode_t * p, uint32_t len, uint8_t * in)
+{                               // process bytes from IDAT, compressed
+   p->z.next_in = in;
+   p->z.avail_in = len;
+   p->z.total_in = 0;
+#ifdef	DEBUG
+   uint32_t o = 0;
+#endif
+   do
+   {
+      uint8_t out[16];
+      p->z.next_out = out;
+      p->z.avail_out = sizeof (out);
+      p->z.total_out = 0;
+      int e = deflate (&p->z, !len ? Z_FINISH : 0);
+      if (e != Z_OK && e != Z_STREAM_END && e != Z_BUF_ERROR)
+         return "Inflate not OK";
+      fwrite (out, 1, p->z.total_out, p->o);
+#ifdef	DEBUG
+      o += p->z.total_out;
+#endif
+   }
+   while (p->z.avail_in || !p->z.avail_out);
+#ifdef	DEBUG
+   fprintf (stderr, "Deflate In=%u out=%u\n", len, o);
+#endif
+   return NULL;
+}
+
+// Allocate a new PNG encode, alloc/free can be NULL for system defaults
+lwpng_encode_t *
+lwpng_encode (uint32_t w, uint32_t h, uint8_t depth, alloc_func zalloc, free_func zfree, void *allocopaque)
+{
+   if (!zalloc)
+      zalloc = lwpng_alloc;
+   if (!zfree)
+      zfree = lwpng_free;
+   lwpng_encode_t *p = zalloc (allocopaque, 1, sizeof (*p));
+   if (!p)
+      return p;
+   memset (p, 0, sizeof (*p));
+   p->z.zalloc = zalloc;
+   p->z.zfree = zfree;
+   p->z.opaque = allocopaque;
+   if (deflateInit (&p->z, 5) != Z_OK)
+      p->error = "Deflate init error";
+#ifdef	CONFIG_LWPNG_CHECKS
+   if (!p->error && depth != 1 && depth != 2 && depth != 4 && depth != 8 && depth != 16)
+      p->error = "Bad depth";
+   if (!p->error && (!w || (w & 0x80000000)))
+      p->error = "Bad width";
+   if (!p->error && (!h || (h & 0x80000000)))
+      p->error = "Bad height";
+#endif
+   depth = depth;
+   p->w = ((uint64_t) w * depth + 7) / 8;
+   p->h = h;
+   p->o = open_memstream ((char **) &p->data, &p->len); // No, not using passed malloc/free. I wonder if there is a way to do that?
+   if (!p->error && !p->o)
+      p->error = "Failed to open_memstream";
+   if (!p->error)
+   {
+      uint32_t l;
+      fwrite (png_signature, 1, sizeof (png_signature), p->o);  // Signature
+      {                         // IHDR
+         struct __attribute__((__packed__))
+         {
+            uint32_t width;
+            uint32_t height;
+            uint8_t depth;
+            uint8_t colour;
+            uint8_t compress;
+            uint8_t filter;
+            uint8_t interlace;
+         } IHDR = { htonl (w), htonl (h), depth, 0, 0, 0, 0 };
+         if (depth == 1)
+            IHDR.colour = (COLOUR_PALETTE | COLOUR_RGB);        // 1 bit is palette black white
+         // TODO may do trans/black/red/white 2 bit some time
+         l = htonl (sizeof (IHDR));
+         fwrite (&l, 1, sizeof (l), p->o);      // LEN
+         fwrite ("IHDR", 1, 4, p->o);
+         fwrite (&IHDR, 1, sizeof (IHDR), p->o);
+         fwrite (&l, 1, sizeof (l), p->o);      // CRC
+      }
+      if (depth == 1)
+      {                         // PLTE
+         uint8_t PLTE[] = { 0, 0, 0, 255, 255, 255 };
+         l = htonl (sizeof (PLTE));
+         fwrite (&l, 1, sizeof (l), p->o);      // LEN
+         fwrite ("PLTE", 1, 4, p->o);
+         fwrite (&PLTE, 1, sizeof (PLTE), p->o);
+         fwrite (&l, 1, sizeof (l), p->o);      // CRC
+      }
+      fflush (p->o);
+      p->IDAT = ftell (p->o);
+      fwrite (&l, 1, sizeof (l), p->o); // LEN
+      fwrite ("IDAT", 1, 4, p->o);
+   }
+   return p;
+}
+
+lwpng_encode_t *
+lwpng_encode_1bit (uint32_t w, uint32_t h, alloc_func zalloc, free_func zfree, void *allocopaque)
+{
+   return lwpng_encode (w, h, 1, zalloc, zfree, allocopaque);
+}
+
+// Write scan line - raw data as per PNG
+const char *
+lwpng_encode_scanline (lwpng_encode_t * p, uint8_t * data)
+{
+   if (!p)
+      return "No control structure";
+#ifdef	CONFIG_LWPNG_CHECKS
+   if (!p->error && !p->h)
+      p->error = "Too many scan lines";
+   if (!p->error && !data)
+      p->error = "Missing data";
+#endif
+   if (!p->error && data)
+   {
+      uint8_t filter = 0;
+      idat_pack (p, 1, &filter);
+      idat_pack (p, p->w, data);
+      p->h--;
+   }
+   return p->error;
+}
+
+// Get final PNG, and free control structure
+const char *
+lwpng_encoded (lwpng_encode_t ** pp, size_t *lenp, uint8_t ** datap)
+{
+   if (lenp)
+      *lenp = 0;
+   if (datap)
+      *datap = 0;
+   if (!pp || !*pp)
+      return "No control structure";
+   lwpng_encode_t *p = *pp;
+   *pp = NULL;
+#ifdef	CONFIG_LWPNG_CHECKS
+   if (!p->error && p->h)
+      p->error = "Missing scan lines";
+#endif
+   if (!p->error)
+   {
+      idat_pack (p, 0, NULL);   // end
+      uint32_t l = 0;
+      fwrite (&l, 1, sizeof (l), p->o); // CRC for IDAT
+      // IEND
+      fwrite (&l, 1, sizeof (l), p->o); // LEN
+      fwrite ("IEND", 1, 4, p->o);
+      fwrite (&l, 1, sizeof (l), p->o); // CRC
+      fclose (p->o);
+      uint32_t len = htonl (p->len - 12 - 4 - p->IDAT - 4 - 4); // IDAT length
+      *(uint32_t *) (p->data + p->IDAT) = len;
+      // Work out CRCs
+      uint32_t o = sizeof (png_signature);
+      while (o < p->len)
+      {
+         uint32_t l = ntohl (*(uint32_t *) (p->data + o));
+         o += 4;
+#ifdef	DEBUG
+         fprintf (stderr, "%.4s %06X %u\n", p->data + o, o, l);
+#endif
+         l += 4;                // chunk name
+         uint32_t crc = 0xFFFFFFFF;
+         while (l--)
+            crc = crc_table[(crc ^ p->data[o++]) & 0xff] ^ (crc >> 8);
+         crc ^= 0xFFFFFFFF;
+         *((uint32_t *) (p->data + o)) = htonl (crc);
+         o += 4;
+      }
+   }
+   deflateEnd (&p->z);
+   const char *e = p->error;
+   if (lenp)
+      *lenp = p->len;
+   if (datap)
+      *datap = p->data;
+   else
+      free (p->data);           // normal free as open_memstream created
+   p->z.zfree (p->z.opaque, p);
+   return e;
+}
+#endif
