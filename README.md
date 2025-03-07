@@ -149,7 +149,7 @@ The initial call to encode will say it is this format, and create a TinyPNG data
 
 ## Decode (to be documented)
 
-This initial call to decode will say it is this format, with the same call backs for plotting.
+This initial call to decode will say it is this format, with the same call backs for plotting. The only restriction may be that the first block should cover the header and not be byte by byte perhaps. Though it may be that this is coded to assume the whole file is in memory (after all that is the point) and so one call with ploting callback and whole TinyPNG perhaps.
 
 ## Recode (to be documented)
 
