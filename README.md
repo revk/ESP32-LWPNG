@@ -138,10 +138,22 @@ The format is as follows and assumes the total length is known. No CRCs included
 |`trns`|1 byte N, plus N bytes|Present for `color` 3, 2, or 0. The `tRNS` bytes, up to 256 bytes for palette `tRNS`.|
 |`idat`|To end|The IDAT content in one block|
 
+### `PLTE`/`tRNS` length `0`
+
 Note the number of bytes have special case for 0, as follows:
 
-- `PLTE` starts with 1 byte number of entries, then each entry is 3 bytes (R/G/B). Special case of length 0 means 256 entries.
+- `PLTE` starts with 1 byte number of entries, then each entry is 3 bytes (R/G/B). Special case for `depth` 8 where length 0 means 256 entries.
 - `tRNS` starts with 1 byte length as number of bytes. The special case is `color` 3 and `depth` 8 where a length of 0 means 256 bytes, otherwise length 0 means no `tRNS`. In the event of a `color` 3 and `depth` 8 where no `tRNS` is present, a length 1 and value 0xFF is used - meaning palette 0 is opaque (as is the rest of the palette).
+
+### Preset palette
+
+A special case is used for a `type` that would be invalid in PNG. In these cases the `idat` comes directly after `type`. `color` 1 is palette and greyscale, which is not valid.
+
+|`depth`|`color`|Meaning|
+|-------|-------|-------|
+|1|1|Treated as `color` 3 and fixed palette of black and white|
+|2|1|Treated as `color` 3 and fixed palette of black, black, red, white, and a entry 0 fully transparrent|
+|8|1|
 
 ## Encode (to be documented)
 
