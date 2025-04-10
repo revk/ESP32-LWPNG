@@ -1,4 +1,8 @@
-# PNG expander for ESP32
+# PNG encoder/decoder for ESP32
+
+Config (`Kconfig`) determins if encoder and/or decoder are included.
+
+# Decoder
 
 Expand PNG image file, from memory or streamed/block-a-time, to pixel plots.
 
@@ -26,7 +30,7 @@ With *checks* enabled, the file validity is checked at many stages, including ch
 
 ## Init
 
-`lwpng_t *lwpng_init(void *opaque,lwpng_cb_start_t*,lwpng_cb_pixel_t*,alloc_func,free_func,void *allocopaque)`
+`lwpng_decode_t *lwpng_decode(void *opaque,lwpng_cb_start_t*,lwpng_cb_pixel_t*,alloc_func,free_func,void *allocopaque)`
 
 This allocates a control structure, returning NULL if failed. The control structure is used in the following functions. The only possible failure would be a memory allocation failure for the control structure.
 
@@ -41,7 +45,7 @@ This allocates a control structure, returning NULL if failed. The control struct
 
 ## Feeding data
 
-`const char *lwpng_data(lwpng_t*,size_t len,uint8_t *data)`
+`const char *lwpng_data(lwpng_decode_t*,size_t len,uint8_t *data)`
 
 Call this repeatedly, or all in one go if you prefer, with bytes from the PNG in order. Returns NULL if OK, else an error string. Can be used one byte at a time if you wish, but blocks are likely to be more efficient.
 
@@ -49,7 +53,7 @@ Note that once an error happens, all further calls do nothing and return the lat
 
 ## Finish
 
-`const char *lwpng_end(lwpng_t**)`
+`const char *lwpng_decoded(lwpng_decode_t**)`
 
 This frees the control structure and also NULLs the value. Returns NULL if OK, else an error string. You have to call this even if a previous error is returned, so as to free space.
 
@@ -78,3 +82,89 @@ Note: Pixels are not called in order if *interlace* is in use, so do not assume 
 ### Alloc/free
 
 See `zlib` for details. You may need a simple wrapper function to call normal `malloc`/`free`.
+
+# Encoder
+
+This is used to generate a PNG in memory (using `open_memstream`)
+
+## Overview
+
+Simple in memory PNG generator - no filter logic. The error logic is the same as encoding.
+
+## Init
+
+`lwpng_encode_t *lwpng_encode_1bit(uint32_t w,uint32_t h,alloc_func,free_func,void *allocopaque)`
+
+The alloc/free/allocopaque are used by `zlib` (see decoder). `w` is width (pixels) and `h` is height (pixels). This encoded 1 bit per pixel with black/white palette.
+
+Other init functions may be added for other encodings.
+
+## Data
+
+`const char *lwpng_encode_scanline(lwpng_encode_t*,uint8_t *data)`
+
+This is called per scan line with a full scan line (according to PNG encopding, but with no filter byte prefix). Should be called for every scan line in order.
+
+## Finish
+
+`const char *lwpng_encoded(lwpng_encode_t**,size_t *len,uint8_t **data)`
+
+Fills in `data` and `len` for the encoded png image, else  NULL/0 and error return string.
+
+# TinyPNG
+
+TinyPNG is a format I am considering adding to both encode and decode, and a recode function. The logic is that a normal PNG file includes :-
+
+- 12 byte header
+- 4 byte per chunk length
+- 4 byte per chunk ID
+- 4 byte per chunk CRC
+- 13 bytes of `IHDR` data which could be reduced to 5 easily
+- Any number of additional chunks apart from `IHDR`, `PLTE`, `tRNS` and `IDAT`
+- Possible multipler concatenated `IDAT` fields each with header and CRC
+
+Even an optimal PNG with `PLTE` and `tRNS` will always have 58 more bytes than needed.
+
+So the idea is that small icons, and images, maybe even fonts, could use a more compact PNG format internally in memory. Fonts would be a really good example of savings if there are 96 characters all wasting 58 bytes for example.
+
+The format is as follows and assumes the total length is known. No CRCs included.
+
+|Field|Size|Meaning|
+|-----|----|-------|
+|`w`|2 bytes (network byte order)|Width (this format does not allow more than 65535 pixels wide)|
+|`h`|2 bytes (network byte order)|Height (this format does not allow more than 65535 pixels hight)|
+|`type`|1 byte|Low 3 bits are PNG `color` and top 5 bits are PNG `depth`|
+|`plte`|1 byte N, plus N times 3 bytes|Present if `type` bit 0 (PLTE) set.|
+|`trns`|1 byte N, plus N bytes|Present for `color` 3, 2, or 0. The `tRNS` bytes, up to 256 bytes for palette `tRNS`.|
+|`idat`|To end|The IDAT content in one block|
+
+### `PLTE`/`tRNS` length `0`
+
+Note the number of bytes have special case for 0, as follows:
+
+- `PLTE` starts with 1 byte number of entries, then each entry is 3 bytes (R/G/B). Special case for `depth` 8 where length 0 means 256 entries.
+- `tRNS` starts with 1 byte length as number of bytes. The special case is `color` 3 and `depth` 8 where a length of 0 means 256 bytes, otherwise length 0 means no `tRNS`. In the event of a `color` 3 and `depth` 8 where no `tRNS` is present, a length 1 and value 0xFF is used - meaning palette 0 is opaque (as is the rest of the palette).
+
+### Preset palette
+
+A special case is used for a `type` that would be invalid in PNG. In these cases the `idat` comes directly after `type`. `color` 1 is palette and greyscale, which is not valid.
+
+|`depth`|`color`|Meaning|
+|-------|-------|-------|
+|1|1|Treated as `color` 3 and fixed palette of black and white|
+|2|1|Treated as `color` 3 and fixed palette of black, black, red, white, and a entry 0 fully transparrent|
+|8|1|
+
+## Encode (to be documented)
+
+The initial call to encode will say it is this format, and create a TinyPNG data buffer instead of a full PNG.
+
+## Decode (to be documented)
+
+This initial call to decode will say it is this format, with the same call backs for plotting. The only restriction may be that the first block should cover the header and not be byte by byte perhaps. Though it may be that this is coded to assume the whole file is in memory (after all that is the point) and so one call with ploting callback and whole TinyPNG perhaps.
+
+## Recode (to be documented)
+
+This will work like the decode, but instead of the decode callbacks a TinyPNG file is generated in memory and the final call provides that data/len.
+
+This means the decode could be read from file or stream part by part to save space. This will also not invoke `zlib` so will be very space efficient in making the TinyPNG file in memory for later use.
