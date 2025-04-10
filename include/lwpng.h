@@ -41,6 +41,9 @@ typedef	struct	lwpng_encode_s	lwpng_encode_t; // This is the internal (malloc'd)
 
 // Allocate a new PNG encode, alloc/free can be NULL for system defaults
 lwpng_encode_t *lwpng_encode_1bit(uint32_t w,uint32_t h,alloc_func,free_func,void *allocopaque);
+lwpng_encode_t *lwpng_encode_2bit(uint32_t w,uint32_t h,alloc_func,free_func,void *allocopaque);
+lwpng_encode_t *lwpng_encode_grey(uint32_t w,uint32_t h,alloc_func,free_func,void *allocopaque);
+lwpng_encode_t *lwpng_encode_rgb(uint32_t w,uint32_t h,alloc_func,free_func,void *allocopaque);
 
 // Write scan line - raw data as per PNG
 const char *lwpng_encode_scanline(lwpng_encode_t*,uint8_t *data);

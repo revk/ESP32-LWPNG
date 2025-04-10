@@ -734,6 +734,34 @@ lwpng_encode (uint32_t w, uint32_t h, uint8_t depth, alloc_func zalloc, free_fun
    p->z.opaque = allocopaque;
    if (deflateInit (&p->z, 5) != Z_OK)
       p->error = "Deflate init error";
+   struct __attribute__((__packed__))
+   {
+      uint32_t width;
+      uint32_t height;
+      uint8_t depth;
+      uint8_t colour;
+      uint8_t compress;
+      uint8_t filter;
+      uint8_t interlace;
+   } IHDR = { htonl (w), htonl (h), 0, 0, 0, 0, 0 };
+   if (depth == 24)
+   {                            // RGB 8 bit depth
+      depth = 8;
+      IHDR.colour = COLOUR_RGB;
+      p->w = w * 3;
+   } else if (depth == 2)
+   {
+      p->w = w;
+   } else if (depth == 2)
+   {
+      IHDR.colour = (COLOUR_ALPHA | COLOUR_PALETTE | COLOUR_RGB);       // 2 bit is black/white/red and trans
+      p->w = w * 3;
+   } else if (depth == 1)
+   {
+      IHDR.colour = (COLOUR_PALETTE | COLOUR_RGB);      // 1 bit is palette black white
+      p->w = ((uint64_t) w * depth + 7) / 8;
+   }
+   IHDR.depth = depth;
 #ifdef	CONFIG_LWPNG_CHECKS
    if (!p->error && depth != 1 && depth != 2 && depth != 4 && depth != 8 && depth != 16)
       p->error = "Bad depth";
@@ -742,8 +770,6 @@ lwpng_encode (uint32_t w, uint32_t h, uint8_t depth, alloc_func zalloc, free_fun
    if (!p->error && (!h || (h & 0x80000000)))
       p->error = "Bad height";
 #endif
-   depth = depth;
-   p->w = ((uint64_t) w * depth + 7) / 8;
    p->h = h;
    p->o = open_memstream ((char **) &p->data, &p->len); // No, not using passed malloc/free. I wonder if there is a way to do that?
    if (!p->error && !p->o)
@@ -753,19 +779,6 @@ lwpng_encode (uint32_t w, uint32_t h, uint8_t depth, alloc_func zalloc, free_fun
       uint32_t l;
       fwrite (png_signature, 1, sizeof (png_signature), p->o);  // Signature
       {                         // IHDR
-         struct __attribute__((__packed__))
-         {
-            uint32_t width;
-            uint32_t height;
-            uint8_t depth;
-            uint8_t colour;
-            uint8_t compress;
-            uint8_t filter;
-            uint8_t interlace;
-         } IHDR = { htonl (w), htonl (h), depth, 0, 0, 0, 0 };
-         if (depth == 1)
-            IHDR.colour = (COLOUR_PALETTE | COLOUR_RGB);        // 1 bit is palette black white
-         // TODO may do trans/black/red/white 2 bit some time
          l = htonl (sizeof (IHDR));
          fwrite (&l, 1, sizeof (l), p->o);      // LEN
          fwrite ("IHDR", 1, 4, p->o);
@@ -781,6 +794,21 @@ lwpng_encode (uint32_t w, uint32_t h, uint8_t depth, alloc_func zalloc, free_fun
          fwrite (&PLTE, 1, sizeof (PLTE), p->o);
          fwrite (&l, 1, sizeof (l), p->o);      // CRC
       }
+      if (depth == 2)
+      {                         // PLTE
+         uint8_t PLTE[] = { 0, 0, 0, 255, 0, 0, 0, 0, 0, 255, 255 };    // trans, red, black, white
+         l = htonl (sizeof (PLTE));
+         fwrite (&l, 1, sizeof (l), p->o);      // LEN
+         fwrite ("PLTE", 1, 4, p->o);
+         fwrite (&PLTE, 1, sizeof (PLTE), p->o);
+         fwrite (&l, 1, sizeof (l), p->o);      // CRC
+         uint8_t tRNS[] = { 0 };
+         l = htonl (sizeof (tRNS));
+         fwrite (&l, 1, sizeof (l), p->o);      // LEN
+         fwrite ("tRNS", 1, 4, p->o);
+         fwrite (&tRNS, 1, sizeof (tRNS), p->o);
+         fwrite (&l, 1, sizeof (l), p->o);      // CRC
+      }
       fflush (p->o);
       p->IDAT = ftell (p->o);
       fwrite (&l, 1, sizeof (l), p->o); // LEN
@@ -793,6 +821,24 @@ lwpng_encode_t *
 lwpng_encode_1bit (uint32_t w, uint32_t h, alloc_func zalloc, free_func zfree, void *allocopaque)
 {
    return lwpng_encode (w, h, 1, zalloc, zfree, allocopaque);
+}
+
+lwpng_encode_t *
+lwpng_encode_2bit (uint32_t w, uint32_t h, alloc_func zalloc, free_func zfree, void *allocopaque)
+{
+   return lwpng_encode (w, h, 2, zalloc, zfree, allocopaque);
+}
+
+lwpng_encode_t *
+lwpng_encode_grey (uint32_t w, uint32_t h, alloc_func zalloc, free_func zfree, void *allocopaque)
+{
+   return lwpng_encode (w, h, 8, zalloc, zfree, allocopaque);
+}
+
+lwpng_encode_t *
+lwpng_encode_rgb (uint32_t w, uint32_t h, alloc_func zalloc, free_func zfree, void *allocopaque)
+{
+   return lwpng_encode (w, h, 24, zalloc, zfree, allocopaque);
 }
 
 // Write scan line - raw data as per PNG
