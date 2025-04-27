@@ -23,13 +23,13 @@ typedef	const char *lwpng_cb_pixel_t(void *opaque,uint32_t x,uint32_t y,uint16_t
 lwpng_decode_t *lwpng_decode(void *opaque,lwpng_cb_start_t*,lwpng_cb_pixel_t*,alloc_func,free_func,void *allocopaque);
 
 // Process data sequentially as data received for PNG file, returns NULL if OK, else error string
-const char *lwpng_data(lwpng_decode_t*,size_t len,uint8_t *data);
+const char *lwpng_data(lwpng_decode_t*,size_t len,const uint8_t *data);
 
 // End processing, frees the control structure, returns NULL if OK, else error string
 const char *lwpng_decoded(lwpng_decode_t**);
 
 // Get info from memory buffer with png in it, at least 29 bytes of data needed
-const char*lwpng_get_info(uint32_t len,uint8_t *data,uint32_t *w,uint32_t *h);
+const char*lwpng_get_info(uint32_t len,const uint8_t *data,uint32_t *w,uint32_t *h);
 
 #endif
 

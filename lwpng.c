@@ -326,9 +326,9 @@ scan_byte (lwpng_decode_t * p, uint8_t b)
 }
 
 static const char *
-idat_unpack (lwpng_decode_t * p, uint32_t len, uint8_t * in)
+idat_unpack (lwpng_decode_t * p, uint32_t len, const uint8_t * in)
 {                               // process bytes from IDAT, compressed
-   p->z.next_in = in;
+   p->z.next_in = (uint8_t*)in;
    p->z.avail_in = len;
    p->z.total_in = 0;
 #ifdef	DEBUG
@@ -357,7 +357,7 @@ idat_unpack (lwpng_decode_t * p, uint32_t len, uint8_t * in)
 }
 
 static const char *
-png_bytes (lwpng_decode_t * p, uint32_t len, uint8_t * in)
+png_bytes (lwpng_decode_t * p, uint32_t len, const uint8_t * in)
 {                               // process byte from PNG file - up to p->remaining only
 #ifdef	CONFIG_LWPNG_CHECKS
    if (p->state != STATE_CRC && p->end)
@@ -612,7 +612,7 @@ lwpng_decode (void *opaque, lwpng_cb_start_t * start, lwpng_cb_pixel_t * pixel, 
 
 // Process data sequentially as data received for PNG file, returns NULL if OK, else error string
 const char *
-lwpng_data (lwpng_decode_t * p, size_t len, uint8_t * data)
+lwpng_data (lwpng_decode_t * p, size_t len, const uint8_t * data)
 {
    if (!p)
       return "No control structure";
@@ -651,7 +651,7 @@ lwpng_decoded (lwpng_decode_t ** pp)
 }
 
 const char *
-lwpng_get_info (uint32_t len, uint8_t * data, uint32_t * w, uint32_t * h)
+lwpng_get_info (uint32_t len, const uint8_t * data, uint32_t * w, uint32_t * h)
 {                               // Get file header data
    if (w)
       *w = 0;
